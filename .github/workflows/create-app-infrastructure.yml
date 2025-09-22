@@ -1192,8 +1192,16 @@ jobs:
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/environments/dev" \
-            -f wait_timer=0 \
-            -f prevent_self_review=false
+            --input - << EOF
+          {
+            "wait_timer": 0,
+            "prevent_self_review": false,
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
           echo "✅ Created dev environment"
           
           # Create staging environment with reviewers (for both build and destroy)
