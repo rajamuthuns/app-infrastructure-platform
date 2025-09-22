@@ -480,34 +480,7 @@ jobs:
           
           echo "✅ userdata directory created with examples"
           
-      - name: Update configuration files
-        run: |
-          cd target-repo
-          
-          # Update AWS accounts configuration
-          cat > config/aws-accounts.json << EOF
-          {
-            "dev": {
-              "account_id": "${{ needs.validate-inputs.outputs.dev_account_id }}",
-              "role_name": "OrganizationAccountAccessRole"
-            },
-            "staging": {
-              "account_id": "${{ needs.validate-inputs.outputs.staging_account_id }}",
-              "role_name": "OrganizationAccountAccessRole"
-            },
-            "production": {
-              "account_id": "${{ needs.validate-inputs.outputs.prod_account_id }}",
-              "role_name": "OrganizationAccountAccessRole"
-            }
-          }
-          EOF
-          
-          # Update backend configurations with account IDs
-          sed -i "s/REPLACE_WITH_DEV_ACCOUNT_ID/${{ needs.validate-inputs.outputs.dev_account_id }}/g" shared/backend-dev.hcl
-          sed -i "s/REPLACE_WITH_STAGING_ACCOUNT_ID/${{ needs.validate-inputs.outputs.staging_account_id }}/g" shared/backend-staging.hcl
-          sed -i "s/REPLACE_WITH_PRODUCTION_ACCOUNT_ID/${{ needs.validate-inputs.outputs.prod_account_id }}/g" shared/backend-prod.hcl
-          
-          echo "✅ Configuration files updated"
+
           
       - name: Copy main workspace README and create app-specific README
         run: |
@@ -1163,9 +1136,32 @@ jobs:
           mkdir -p config
           cp ../base-repo/config/*.json config/
           
+          # Update AWS accounts configuration
+          cat > config/aws-accounts.json << EOF
+          {
+            "dev": {
+              "account_id": "${{ needs.validate-inputs.outputs.dev_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            },
+            "staging": {
+              "account_id": "${{ needs.validate-inputs.outputs.staging_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            },
+            "production": {
+              "account_id": "${{ needs.validate-inputs.outputs.prod_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            }
+          }
+          EOF
+          
           # Copy shared backend configurations
           mkdir -p shared
           cp ../base-repo/shared/*.hcl shared/
+          
+          # Update backend configurations with account IDs
+          sed -i "s/REPLACE_WITH_DEV_ACCOUNT_ID/${{ needs.validate-inputs.outputs.dev_account_id }}/g" shared/backend-dev.hcl
+          sed -i "s/REPLACE_WITH_STAGING_ACCOUNT_ID/${{ needs.validate-inputs.outputs.staging_account_id }}/g" shared/backend-staging.hcl
+          sed -i "s/REPLACE_WITH_PRODUCTION_ACCOUNT_ID/${{ needs.validate-inputs.outputs.prod_account_id }}/g" shared/backend-prod.hcl
           
           # Copy scripts
           mkdir -p scripts
@@ -1176,6 +1172,15 @@ jobs:
           mkdir -p docs
           if [ -d "../base-repo/docs" ]; then
             cp ../base-repo/docs/*.md docs/
+          fi
+          
+          # Copy GitHub workflows (including build and destroy workflows)
+          mkdir -p .github/workflows
+          if [ -d "../base-repo/.github/workflows" ]; then
+            cp ../base-repo/.github/workflows/*.yml .github/workflows/
+            echo "✅ Copied GitHub workflows from base repository"
+          else
+            echo "⚠️ No workflows directory found in base repository"
           fi
           
       - name: Setup GitHub environments
@@ -1191,7 +1196,7 @@ jobs:
             -f prevent_self_review=false
           echo "✅ Created dev environment"
           
-          # Create staging environment with reviewers
+          # Create staging environment with reviewers (for both build and destroy)
           STAGING_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.staging_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
           gh api \
             --method PUT \
@@ -1208,9 +1213,10 @@ jobs:
             }
           }
           EOF
-          echo "✅ Created staging environment with reviewers"
+          echo "✅ Created staging environment with reviewers: ${{ needs.validate-inputs.outputs.staging_approvers }}"
+          echo "   - Approvers required for: Build/Deploy AND Destroy operations"
           
-          # Create production environment with reviewers
+          # Create production environment with reviewers (for both build and destroy)
           PROD_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.prod_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
           gh api \
             --method PUT \
@@ -1227,7 +1233,9 @@ jobs:
             }
           }
           EOF
-          echo "✅ Created production environment with reviewers"
+          echo "✅ Created production environment with reviewers: ${{ needs.validate-inputs.outputs.prod_approvers }}"
+          echo "   - Approvers required for: Build/Deploy AND Destroy operations"
+          echo "   - Wait timer: 5 minutes before deployment can proceed"
           
       - name: Setup branch protection rules
         run: |
@@ -1287,9 +1295,14 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Branch Structure:**" >> $GITHUB_STEP_SUMMARY
             echo "- 🏠 **Main**: README and workflows only" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔧 **Dev**: All configuration files and examples" >> $GITHUB_STEP_SUMMARY
-            echo "- 🧪 **Staging**: Ready for staging deployments" >> $GITHUB_STEP_SUMMARY
-            echo "- 🚀 **Production**: Ready for production deployments" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔧 **Dev**: All configuration files and examples (auto-deploy)" >> $GITHUB_STEP_SUMMARY
+            echo "- 🧪 **Staging**: Ready for staging deployments (requires approval)" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚀 **Production**: Ready for production deployments (requires approval + 5min wait)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Environment Approvals (Build & Destroy):**" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔧 **Dev**: No approval required" >> $GITHUB_STEP_SUMMARY
+            echo "- 🧪 **Staging**: Requires approval from ${{ needs.validate-inputs.outputs.staging_approvers }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚀 **Production**: Requires approval from ${{ needs.validate-inputs.outputs.prod_approvers }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Next Steps for App Team:**" >> $GITHUB_STEP_SUMMARY
             echo "1. Clone repository: \`git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git\`" >> $GITHUB_STEP_SUMMARY
