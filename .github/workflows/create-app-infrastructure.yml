@@ -1,0 +1,1385 @@
+name: Create App Team Infrastructure Repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Application name (e.g., my-web-app)'
+        required: true
+        type: string
+      
+      target_github_org:
+        description: 'Target GitHub organization for app team'
+        required: true
+        type: string
+      
+      app_team_contacts:
+        description: 'App team contact emails (comma-separated)'
+        required: true
+        type: string
+      
+      dev_account_id:
+        description: 'AWS Development Account ID (12 digits)'
+        required: true
+        type: string
+      
+      staging_account_id:
+        description: 'AWS Staging Account ID (12 digits)'
+        required: true
+        type: string
+      
+      prod_account_id:
+        description: 'AWS Production Account ID (12 digits)'
+        required: true
+        type: string
+      
+      staging_approvers:
+        description: 'GitHub usernames for staging approvals (comma-separated)'
+        required: true
+        type: string
+      
+      prod_approvers:
+        description: 'GitHub usernames for production approvals (comma-separated)'
+        required: true
+        type: string
+      
+      notification_slack_channel:
+        description: 'Slack channel for notifications (optional, e.g., #app-team-notifications)'
+        required: false
+        type: string
+        default: ''
+      
+      custom_modules:
+        description: 'Additional modules to include (JSON format, optional)'
+        required: false
+        type: string
+        default: '{}'
+      
+      aws_region:
+        description: 'Primary AWS region'
+        required: false
+        type: choice
+        default: 'us-east-1'
+        options:
+          - 'us-east-1'
+          - 'us-west-2'
+          - 'eu-west-1'
+          - 'ap-southeast-1'
+
+  # API trigger support
+  repository_dispatch:
+    types: [create-app-infrastructure]
+
+env:
+  REPO_NAME: "${{ github.event.inputs.app_name || github.event.client_payload.app_name }}-infrastructure"
+  TARGET_ORG: "${{ github.event.inputs.target_github_org || github.event.client_payload.target_github_org }}"
+  APP_NAME: "${{ github.event.inputs.app_name || github.event.client_payload.app_name }}"
+
+jobs:
+  validate-inputs:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      app_name: ${{ steps.validate.outputs.app_name }}
+      repo_name: ${{ steps.validate.outputs.repo_name }}
+      target_org: ${{ steps.validate.outputs.target_org }}
+      dev_account_id: ${{ steps.validate.outputs.dev_account_id }}
+      staging_account_id: ${{ steps.validate.outputs.staging_account_id }}
+      prod_account_id: ${{ steps.validate.outputs.prod_account_id }}
+      staging_approvers: ${{ steps.validate.outputs.staging_approvers }}
+      prod_approvers: ${{ steps.validate.outputs.prod_approvers }}
+      aws_region: ${{ steps.validate.outputs.aws_region }}
+      
+    steps:
+      - name: Validate and normalize inputs
+        id: validate
+        run: |
+          # Get inputs from either workflow_dispatch or repository_dispatch
+          APP_NAME="${{ github.event.inputs.app_name || github.event.client_payload.app_name }}"
+          TARGET_ORG="${{ github.event.inputs.target_github_org || github.event.client_payload.target_github_org }}"
+          DEV_ACCOUNT="${{ github.event.inputs.dev_account_id || github.event.client_payload.dev_account_id }}"
+          STAGING_ACCOUNT="${{ github.event.inputs.staging_account_id || github.event.client_payload.staging_account_id }}"
+          PROD_ACCOUNT="${{ github.event.inputs.prod_account_id || github.event.client_payload.prod_account_id }}"
+          STAGING_APPROVERS="${{ github.event.inputs.staging_approvers || github.event.client_payload.staging_approvers }}"
+          PROD_APPROVERS="${{ github.event.inputs.prod_approvers || github.event.client_payload.prod_approvers }}"
+          AWS_REGION="${{ github.event.inputs.aws_region || github.event.client_payload.aws_region || 'us-east-1' }}"
+          
+          # Validate app name format
+          if [[ ! "$APP_NAME" =~ ^[a-z0-9-]+$ ]]; then
+            echo "❌ App name must contain only lowercase letters, numbers, and hyphens"
+            exit 1
+          fi
+          
+          # Validate AWS account IDs
+          for account in "$DEV_ACCOUNT" "$STAGING_ACCOUNT" "$PROD_ACCOUNT"; do
+            if [[ ! "$account" =~ ^[0-9]{12}$ ]]; then
+              echo "❌ Invalid AWS account ID format: $account (must be 12 digits)"
+              exit 1
+            fi
+          done
+          
+          # Generate repository name
+          REPO_NAME="${APP_NAME}-infrastructure"
+          
+          # Set outputs
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "target_org=$TARGET_ORG" >> $GITHUB_OUTPUT
+          echo "dev_account_id=$DEV_ACCOUNT" >> $GITHUB_OUTPUT
+          echo "staging_account_id=$STAGING_ACCOUNT" >> $GITHUB_OUTPUT
+          echo "prod_account_id=$PROD_ACCOUNT" >> $GITHUB_OUTPUT
+          echo "staging_approvers=$STAGING_APPROVERS" >> $GITHUB_OUTPUT
+          echo "prod_approvers=$PROD_APPROVERS" >> $GITHUB_OUTPUT
+          echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
+          
+          echo "✅ Input validation completed"
+          echo "📋 App Name: $APP_NAME"
+          echo "📋 Repository: $TARGET_ORG/$REPO_NAME"
+          echo "📋 AWS Accounts: Dev($DEV_ACCOUNT), Staging($STAGING_ACCOUNT), Prod($PROD_ACCOUNT)"
+
+  create-repository:
+    name: Create GitHub Repository
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    outputs:
+      repository_url: ${{ steps.create-repo.outputs.repository_url }}
+      clone_url: ${{ steps.create-repo.outputs.clone_url }}
+      
+    steps:
+      - name: Checkout platform repository
+        uses: actions/checkout@v4
+        
+      - name: Setup GitHub CLI
+        run: |
+          gh --version
+          echo "${{ secrets.PLATFORM_GITHUB_TOKEN }}" | gh auth login --with-token
+          
+      - name: Check if repository exists
+        id: check-repo
+        run: |
+          if gh repo view "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Repository already exists: ${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✅ Repository name is available"
+          fi
+          
+      - name: Create GitHub repository
+        id: create-repo
+        if: steps.check-repo.outputs.exists == 'false'
+        run: |
+          # Create repository
+          gh repo create "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
+            --description "Infrastructure as Code for ${{ needs.validate-inputs.outputs.app_name }}" \
+            --private \
+            --clone=false
+          
+          # Set outputs
+          REPO_URL="https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          CLONE_URL="git@github.com:${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git"
+          
+          echo "repository_url=$REPO_URL" >> $GITHUB_OUTPUT
+          echo "clone_url=$CLONE_URL" >> $GITHUB_OUTPUT
+          
+          echo "✅ Repository created: $REPO_URL"
+          
+      - name: Handle existing repository
+        if: steps.check-repo.outputs.exists == 'true'
+        run: |
+          echo "⚠️ Repository already exists. Skipping creation."
+          echo "📋 Existing repository: https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          
+          # Set outputs for existing repo
+          REPO_URL="https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          CLONE_URL="git@github.com:${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git"
+          
+          echo "repository_url=$REPO_URL" >> $GITHUB_OUTPUT
+          echo "clone_url=$CLONE_URL" >> $GITHUB_OUTPUT
+
+  setup-repository-structure:
+    name: Setup Repository Structure
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, create-repository]
+    
+    steps:
+      - name: Checkout base infrastructure repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.BASE_INFRASTRUCTURE_REPO || 'your-org/terraform-base-infrastructure' }}
+          token: ${{ secrets.PLATFORM_GITHUB_TOKEN }}
+          path: base-repo
+        
+      - name: Setup Git
+        run: |
+          git config --global user.name "Platform Engineering Bot"
+          git config --global user.email "platform-engineering@company.com"
+          
+      - name: Clone target repository
+        run: |
+          echo "${{ secrets.PLATFORM_GITHUB_TOKEN }}" | gh auth login --with-token
+          gh repo clone "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" target-repo
+          cd target-repo
+          
+      - name: Copy base infrastructure files
+        run: |
+          cd target-repo
+          
+          # Copy main Terraform files from base repository
+          cp ../base-repo/main.tf .
+          cp ../base-repo/variables.tf .
+          cp ../base-repo/outputs.tf .
+          cp ../base-repo/backend.tf .
+          cp ../base-repo/Makefile .
+          cp ../base-repo/deploy.sh .
+          chmod +x deploy.sh
+          cp ../base-repo/.gitignore .
+          
+          # Copy configuration files
+          mkdir -p config
+          cp ../base-repo/config/*.json config/
+          
+          # Copy shared backend configurations
+          mkdir -p shared
+          cp ../base-repo/shared/*.hcl shared/
+          
+          # Copy scripts
+          mkdir -p scripts
+          cp ../base-repo/scripts/*.sh scripts/
+          chmod +x scripts/*.sh
+          
+          # Copy GitHub workflows
+          mkdir -p .github/workflows
+          cp -r ../base-repo/.github/workflows/* .github/workflows/
+          
+          # Copy documentation
+          mkdir -p docs
+          if [ -d "../base-repo/docs" ]; then
+            cp ../base-repo/docs/*.md docs/
+          fi
+          
+          echo "✅ Base files copied to target repository"
+          
+      - name: Create empty tfvars directory with examples
+        run: |
+          cd target-repo
+          mkdir -p tfvars
+          
+          # Create tfvars README
+          cat > tfvars/README.md << 'EOF'
+          # Terraform Variables Configuration
+          
+          This directory contains environment-specific configuration files for your infrastructure.
+          
+          ## 📋 Required Files
+          
+          You need to create the following files with your specific configurations:
+          
+          - `dev-terraform.tfvars` - Development environment configuration
+          - `stg-terraform.tfvars` - Staging environment configuration  
+          - `prod-terraform.tfvars` - Production environment configuration
+          
+          ## 🚀 Getting Started
+          
+          1. Copy the example files and remove the `.example` extension
+          2. Update the values according to your requirements
+          3. Commit the files to your repository
+          4. Push to dev branch to trigger deployment
+          
+          ## 🔒 Security Note
+          
+          These files may contain sensitive information. Ensure your repository is private and follow your organization's security guidelines.
+          
+          ## 📖 Configuration Guide
+          
+          See the main README.md and SETUP.md files for detailed configuration instructions.
+          EOF
+          
+          # Create example tfvars files
+          cat > tfvars/dev-terraform.tfvars.example << EOF
+          # Development Environment Configuration
+          project_name = "${{ needs.validate-inputs.outputs.app_name }}"
+          environment = "dev"
+          account_id = "${{ needs.validate-inputs.outputs.dev_account_id }}"
+          aws_region = "${{ needs.validate-inputs.outputs.aws_region }}"
+          
+          # GitLab configuration for private modules
+          gitlab_org = "your-gitlab-org"
+          
+          # Base modules configuration
+          base_modules = {
+            ec2 = {
+              repository = "ec2-base-module"
+              version    = "main"
+            }
+            alb = {
+              repository = "alb-base-module"
+              version    = "main"
+            }
+          }
+          
+          # ALB Configuration
+          alb_spec = {
+            web-alb = {
+              vpc_name = "dev-vpc"
+              http_enabled = true
+              https_enabled = false
+              name = "web-alb"
+            }
+          }
+          
+          # EC2 Configuration
+          ec2_spec = {
+            "web-server" = {
+              enable_alb_integration = true
+              alb_name = "web-alb"
+              instance_type = "t3.micro"
+              vpc_name = "dev-vpc"
+              subnet_name = "dev-public-subnet-1"
+              ami_name = "amzn2-ami-hvm-*-x86_64-gp2"
+              os_type = "linux"
+              root_volume_size = 20
+              key_name = "your-key-pair"
+            }
+          }
+          EOF
+          
+          # Create staging and production examples
+          sed 's/dev/staging/g; s/t3.micro/t3.small/g; s/20/30/g' tfvars/dev-terraform.tfvars.example > tfvars/stg-terraform.tfvars.example
+          sed -i "s/${{ needs.validate-inputs.outputs.dev_account_id }}/${{ needs.validate-inputs.outputs.staging_account_id }}/g" tfvars/stg-terraform.tfvars.example
+          
+          sed 's/dev/prod/g; s/staging/prod/g; s/t3.small/t3.medium/g; s/30/50/g; s/false/true/g' tfvars/stg-terraform.tfvars.example > tfvars/prod-terraform.tfvars.example
+          sed -i "s/${{ needs.validate-inputs.outputs.staging_account_id }}/${{ needs.validate-inputs.outputs.prod_account_id }}/g" tfvars/prod-terraform.tfvars.example
+          
+          echo "✅ tfvars directory created with examples"
+          
+      - name: Create empty userdata directory with examples
+        run: |
+          cd target-repo
+          mkdir -p userdata
+          
+          # Create userdata README
+          cat > userdata/README.md << 'EOF'
+          # User Data Scripts
+          
+          This directory contains server initialization scripts that run when your EC2 instances start.
+          
+          ## 📋 Required Files
+          
+          You need to create the following files based on your operating system requirements:
+          
+          - `userdata-linux.sh` - Linux server initialization script
+          - `userdata-windows.ps1` - Windows server initialization script (if needed)
+          
+          ## 🚀 Getting Started
+          
+          1. Copy the example files and remove the `.example` extension
+          2. Customize the scripts for your application requirements
+          3. Test the scripts in development environment first
+          4. Commit the files to your repository
+          
+          ## 🔒 Security Note
+          
+          These scripts run with root/administrator privileges. Follow security best practices:
+          - Don't hardcode secrets or passwords
+          - Use AWS Systems Manager Parameter Store or Secrets Manager for sensitive data
+          - Validate and sanitize any external inputs
+          
+          ## 📖 Script Guide
+          
+          See the main README.md and SETUP.md files for detailed scripting instructions.
+          EOF
+          
+          # Create example userdata files
+          cat > userdata/userdata-linux.sh.example << 'EOF'
+          #!/bin/bash
+          
+          # Linux Server Initialization Script
+          # This script runs when your EC2 instance starts
+          
+          # Variables passed from Terraform
+          ENVIRONMENT="${environment}"
+          HOSTNAME="${hostname}"
+          OS_TYPE="${os_type}"
+          
+          # Set hostname
+          hostnamectl set-hostname "$HOSTNAME"
+          
+          # Update system
+          yum update -y
+          
+          # Install basic packages
+          yum install -y \
+              curl \
+              wget \
+              unzip \
+              git \
+              htop \
+              awscli
+          
+          # Install Docker (example)
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install your application
+          # Example: Download and run your application
+          # wget https://your-app-releases.com/latest.tar.gz
+          # tar -xzf latest.tar.gz
+          # ./install.sh
+          
+          # Configure application for environment
+          case "$ENVIRONMENT" in
+              "dev")
+                  echo "Configuring for development environment"
+                  # Development-specific configuration
+                  ;;
+              "staging")
+                  echo "Configuring for staging environment"
+                  # Staging-specific configuration
+                  ;;
+              "prod")
+                  echo "Configuring for production environment"
+                  # Production-specific configuration
+                  ;;
+          esac
+          
+          # Start your application service
+          # systemctl start your-app
+          # systemctl enable your-app
+          
+          # Log completion
+          echo "User data script completed for $HOSTNAME in $ENVIRONMENT environment" >> /var/log/userdata.log
+          EOF
+          
+          cat > userdata/userdata-windows.ps1.example << 'EOF'
+          # Windows Server Initialization Script
+          # This script runs when your EC2 instance starts
+          
+          # Variables passed from Terraform
+          $Environment = "${environment}"
+          $Hostname = "${hostname}"
+          $OSType = "${os_type}"
+          
+          # Set hostname
+          Rename-Computer -NewName $Hostname -Force
+          
+          # Install Chocolatey package manager
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+          
+          # Install basic packages
+          choco install -y git
+          choco install -y awscli
+          choco install -y 7zip
+          
+          # Install IIS (example web server)
+          Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole, IIS-WebServer, IIS-CommonHttpFeatures, IIS-HttpErrors, IIS-HttpLogging, IIS-RequestFiltering, IIS-StaticContent
+          
+          # Install your application
+          # Example: Download and install your application
+          # Invoke-WebRequest -Uri "https://your-app-releases.com/latest.msi" -OutFile "C:\temp\app.msi"
+          # Start-Process msiexec.exe -Wait -ArgumentList '/I C:\temp\app.msi /quiet'
+          
+          # Configure application for environment
+          switch ($Environment) {
+              "dev" {
+                  Write-Host "Configuring for development environment"
+                  # Development-specific configuration
+              }
+              "staging" {
+                  Write-Host "Configuring for staging environment"
+                  # Staging-specific configuration
+              }
+              "prod" {
+                  Write-Host "Configuring for production environment"
+                  # Production-specific configuration
+              }
+          }
+          
+          # Start your application service
+          # Start-Service -Name "YourAppService"
+          # Set-Service -Name "YourAppService" -StartupType Automatic
+          
+          # Log completion
+          Add-Content -Path "C:\temp\userdata.log" -Value "User data script completed for $Hostname in $Environment environment"
+          EOF
+          
+          echo "✅ userdata directory created with examples"
+          
+      - name: Update configuration files
+        run: |
+          cd target-repo
+          
+          # Update AWS accounts configuration
+          cat > config/aws-accounts.json << EOF
+          {
+            "dev": {
+              "account_id": "${{ needs.validate-inputs.outputs.dev_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            },
+            "staging": {
+              "account_id": "${{ needs.validate-inputs.outputs.staging_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            },
+            "production": {
+              "account_id": "${{ needs.validate-inputs.outputs.prod_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            }
+          }
+          EOF
+          
+          # Update backend configurations with account IDs
+          sed -i "s/REPLACE_WITH_DEV_ACCOUNT_ID/${{ needs.validate-inputs.outputs.dev_account_id }}/g" shared/backend-dev.hcl
+          sed -i "s/REPLACE_WITH_STAGING_ACCOUNT_ID/${{ needs.validate-inputs.outputs.staging_account_id }}/g" shared/backend-staging.hcl
+          sed -i "s/REPLACE_WITH_PRODUCTION_ACCOUNT_ID/${{ needs.validate-inputs.outputs.prod_account_id }}/g" shared/backend-prod.hcl
+          
+          echo "✅ Configuration files updated"
+          
+      - name: Copy main workspace README and create app-specific README
+        run: |
+          cd target-repo
+          
+          # Copy the main workspace README.md as PLATFORM-README.md for reference
+          cp ../base-repo/README.md PLATFORM-README.md
+          
+          # Create app-specific README
+          cat > README.md << EOF
+          # ${{ needs.validate-inputs.outputs.app_name }} Infrastructure
+          
+          Infrastructure as Code for ${{ needs.validate-inputs.outputs.app_name }} using Terraform and GitOps workflow.
+          
+          ## 🏗️ Architecture
+          
+          This repository uses the Terraform Infrastructure Orchestrator pattern to manage infrastructure across multiple environments (dev, staging, production) with GitOps workflow.
+          
+          ### Environments
+          - **Development**: Account ID ${{ needs.validate-inputs.outputs.dev_account_id }}
+          - **Staging**: Account ID ${{ needs.validate-inputs.outputs.staging_account_id }}  
+          - **Production**: Account ID ${{ needs.validate-inputs.outputs.prod_account_id }}
+          
+          ### Approvers
+          - **Staging**: ${{ needs.validate-inputs.outputs.staging_approvers }}
+          - **Production**: ${{ needs.validate-inputs.outputs.prod_approvers }}
+          
+          ## 🚀 Quick Start
+          
+          ### 1. Configure Your Infrastructure
+          
+          Create your environment-specific configuration files:
+          
+          \`\`\`bash
+          # Copy example files and customize
+          cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
+          cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
+          cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
+          
+          # Edit each file with your specific requirements
+          nano tfvars/dev-terraform.tfvars
+          nano tfvars/stg-terraform.tfvars
+          nano tfvars/prod-terraform.tfvars
+          \`\`\`
+          
+          ### 2. Add User Data Scripts
+          
+          Create your server initialization scripts:
+          
+          \`\`\`bash
+          # Copy example files and customize
+          cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
+          # cp userdata/userdata-windows.ps1.example userdata/userdata-windows.ps1  # If needed
+          
+          # Edit scripts for your application
+          nano userdata/userdata-linux.sh
+          \`\`\`
+          
+          ### 3. Set Up AWS Credentials
+          
+          Configure GitHub repository secrets (see SETUP.md for details):
+          - AWS_ACCESS_KEY_ID
+          - AWS_SECRET_ACCESS_KEY
+          - PRIVATE_REPO_TOKEN (for private modules)
+          
+          ### 4. Deploy with GitOps
+          
+          \`\`\`bash
+          # Add all your configurations
+          git add .
+          git commit -m "feat: initial infrastructure configuration"
+          git push origin dev
+          
+          # GitOps workflow will automatically:
+          # 1. Deploy to dev environment
+          # 2. Create PR to staging (requires approval)
+          # 3. Create PR to production (requires approval)
+          \`\`\`
+          
+          ## 🌍 Environments and Approvals
+          
+          - **Dev**: Auto-deploys on push to dev branch
+          - **Staging**: Requires approval from: ${{ needs.validate-inputs.outputs.staging_approvers }}
+          - **Production**: Requires approval from: ${{ needs.validate-inputs.outputs.prod_approvers }}
+          
+          ## 📁 Project Structure
+          
+          \`\`\`
+          ${{ needs.validate-inputs.outputs.repo_name }}/
+          ├── README.md                          # This file
+          ├── PLATFORM-README.md                 # Complete platform documentation
+          ├── SETUP.md                           # Detailed setup instructions
+          ├── main.tf                            # Infrastructure orchestration
+          ├── variables.tf                       # Variable definitions
+          ├── outputs.tf                         # Output definitions
+          ├── backend.tf                         # Backend configuration
+          ├── tfvars/                            # Environment configurations
+          │   ├── dev-terraform.tfvars           # Development config
+          │   ├── stg-terraform.tfvars           # Staging config
+          │   └── prod-terraform.tfvars          # Production config
+          ├── userdata/                          # Server initialization scripts
+          │   ├── userdata-linux.sh              # Linux initialization
+          │   └── userdata-windows.ps1           # Windows initialization
+          ├── .github/workflows/                 # GitOps CI/CD pipelines
+          ├── config/                            # Environment configurations
+          ├── shared/                            # Backend configurations
+          ├── scripts/                           # Utility scripts
+          └── docs/                              # Documentation
+          \`\`\`
+          
+          ## 🛠️ Local Development
+          
+          \`\`\`bash
+          # Plan changes for development
+          ./deploy.sh dev plan
+          
+          # Apply changes to development
+          ./deploy.sh dev apply
+          
+          # Plan changes for staging
+          ./deploy.sh staging plan
+          \`\`\`
+          
+          ## 📖 Documentation
+          
+          - [SETUP.md](SETUP.md) - Detailed setup instructions
+          - [CREDENTIALS-SETUP.md](CREDENTIALS-SETUP.md) - AWS credentials setup guide
+          - [PLATFORM-README.md](PLATFORM-README.md) - Complete platform documentation
+          - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Architecture details
+          - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues
+          
+          ## 🆘 Support
+          
+          For questions or issues:
+          1. Check the SETUP.md file
+          2. Review PLATFORM-README.md for complete documentation
+          3. Review documentation in docs/ folder
+          4. Contact the Platform Engineering team
+          5. Create an issue in this repository
+          
+          ---
+          
+          **Repository created by Platform Engineering Pipeline**  
+          **Creation Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")  
+          **Platform Team**: Contact platform-engineering@company.com for support
+          EOF
+          
+          echo "✅ App-specific README created and main workspace README copied"
+          
+      - name: Create comprehensive setup instructions
+        run: |
+          cd target-repo
+          
+          # Create comprehensive setup guide (embedded in workflow since platform repo is separate)
+          cat > SETUP.md << 'SETUP_EOF'
+          # Setup Instructions for App Team
+          
+          This guide will help you complete the setup of your infrastructure repository.
+          
+          ## 🎯 Overview
+          
+          Your infrastructure repository has been created with the following structure:
+          - ✅ Base Terraform files copied
+          - ✅ GitOps workflow configured
+          - ✅ GitHub environments set up
+          - ⚠️ **Action Required**: Configure tfvars and userdata
+          - ⚠️ **Action Required**: Set up AWS credentials
+          
+          ## 📋 Required Actions
+          
+          ### 1. Configure Infrastructure (tfvars)
+          
+          Create your environment-specific configuration files:
+          
+          ```bash
+          # Copy example files
+          cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
+          cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
+          cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
+          ```
+          
+          **Key configurations to update:**
+          
+          #### In all tfvars files:
+          - `gitlab_org` - Your GitLab organization name
+          - `base_modules` - Module repositories and versions
+          - VPC names (must match your existing VPCs)
+          - Subnet names (must match your existing subnets)
+          - Key pair names (must exist in your AWS accounts)
+          
+          #### Environment-specific values:
+          - `instance_type` - Different sizes per environment
+          - `root_volume_size` - Storage requirements
+          - `ami_name` - AMI selection criteria
+          - SSL certificates for production ALB
+          
+          ### 2. Create User Data Scripts
+          
+          Create server initialization scripts:
+          
+          ```bash
+          # Copy example files
+          cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
+          # cp userdata/userdata-windows.ps1.example userdata/userdata-windows.ps1  # If needed
+          ```
+          
+          **Customize the scripts for your application:**
+          - Install required software packages
+          - Configure application settings
+          - Set up monitoring and logging
+          - Configure environment-specific settings
+          
+          ### 3. Set Up AWS Credentials
+          
+          Configure the following GitHub repository secrets:
+          
+          #### Go to: Repository Settings → Secrets and variables → Actions
+          
+          **Required Secrets:**
+          ```
+          AWS_ACCESS_KEY_ID          - AWS access key for deployments
+          AWS_SECRET_ACCESS_KEY      - AWS secret key for deployments
+          PRIVATE_REPO_TOKEN         - GitHub token for private module access
+          ```
+          
+          **Optional Secrets:**
+          ```
+          GITLAB_TOKEN              - GitLab token if using GitLab modules
+          SLACK_WEBHOOK_URL         - For deployment notifications
+          ```
+          
+          ### 4. Test Your Setup
+          
+          **Step 1: Validate Configuration**
+          ```bash
+          # Check Terraform syntax
+          terraform fmt -check
+          terraform validate
+          ```
+          
+          **Step 2: Test Development Deployment**
+          ```bash
+          # Switch to dev branch
+          git checkout dev
+          
+          # Add your configurations
+          git add tfvars/ userdata/
+          git commit -m "feat: add initial infrastructure configuration"
+          git push origin dev
+          
+          # Monitor GitHub Actions for deployment
+          ```
+          
+          **Step 3: Verify Infrastructure**
+          - Check AWS console for created resources
+          - Verify EC2 instances are running
+          - Test ALB endpoints
+          - Check user data script execution logs
+          
+          ## 🚀 Deployment Workflow
+          
+          ### GitOps Workflow
+          1. **Development**: Push to `dev` branch → Auto-deploy to dev environment
+          2. **Staging**: Merge dev to `staging` → Requires team approval → Deploy to staging
+          3. **Production**: Merge staging to `production` → Requires senior approval → Deploy to production
+          
+          ### Manual Deployment
+          ```bash
+          # Local development testing
+          ./deploy.sh dev plan
+          ./deploy.sh dev apply
+          
+          # Staging deployment
+          ./deploy.sh staging plan
+          ./deploy.sh staging apply
+          
+          # Production deployment (with confirmation)
+          ./deploy.sh production plan
+          ./deploy.sh production apply
+          ```
+          
+          ## 🛡️ Security Best Practices
+          
+          ### Secrets Management
+          - Never commit secrets to repository
+          - Use AWS Systems Manager Parameter Store
+          - Use AWS Secrets Manager for database passwords
+          - Rotate credentials regularly
+          
+          ### Access Control
+          - Use least privilege IAM policies
+          - Enable MFA for AWS accounts
+          - Restrict GitHub repository access
+          - Use branch protection rules
+          
+          ## 🔍 Troubleshooting
+          
+          ### Common Issues
+          
+          **Terraform Backend Errors:**
+          ```bash
+          # Initialize backend
+          terraform init -backend-config=shared/backend-dev.hcl
+          
+          # If backend doesn't exist, run setup
+          ./scripts/setup-backend-per-account.sh
+          ```
+          
+          **Module Download Failures:**
+          - Check PRIVATE_REPO_TOKEN has access to module repositories
+          - Verify module repository URLs in main.tf
+          - Ensure module versions/tags exist
+          
+          **AWS Permission Errors:**
+          - Verify AWS credentials in GitHub secrets
+          - Check IAM policies have required permissions
+          - Ensure cross-account roles are configured correctly
+          
+          **VPC/Subnet Not Found:**
+          - Verify VPC and subnet names in tfvars files
+          - Check that resources exist in target AWS accounts
+          - Ensure Name tags match exactly
+          
+          ### Getting Help
+          
+          1. **Check Logs:**
+             - GitHub Actions workflow logs
+             - CloudWatch logs for EC2 instances
+             - Terraform plan/apply output
+          
+          2. **Validate Configuration:**
+             ```bash
+             terraform fmt -check
+             terraform validate
+             terraform plan -var-file=tfvars/dev-terraform.tfvars
+             ```
+          
+          3. **Contact Support:**
+             - Create issue in this repository
+             - Contact Platform Engineering team
+             - Check PLATFORM-README.md for complete documentation
+          
+          ## 📚 Additional Resources
+          
+          - [Terraform Documentation](https://www.terraform.io/docs)
+          - [AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+          - [GitHub Actions Documentation](https://docs.github.com/en/actions)
+          - [GitOps Best Practices](https://www.gitops.tech/)
+          
+          ---
+          
+          **Next Steps:**
+          1. Complete the required actions above
+          2. Test your development environment
+          3. Set up monitoring and alerting
+          4. Document your application-specific configurations
+          5. Train your team on the GitOps workflow
+          SETUP_EOF
+          
+          # Create credentials setup guide
+          cat > CREDENTIALS-SETUP.md << 'CREDS_EOF'
+          # AWS Credentials Setup Guide
+          
+          This guide explains how to set up AWS credentials for your infrastructure deployment pipeline.
+          
+          ## 🎯 Overview
+          
+          Your infrastructure needs AWS credentials to deploy resources across different environments. This guide covers multiple approaches from simple to enterprise-grade security.
+          
+          ## 🔐 Authentication Methods
+          
+          ### Method 1: IAM User with Access Keys (Simple)
+          
+          **Best for**: Small teams, development environments, getting started quickly
+          
+          #### Step 1: Create IAM User
+          ```bash
+          # Using AWS CLI (if you have admin access)
+          aws iam create-user --user-name terraform-deployer
+          
+          # Attach PowerUser policy (or create custom policy)
+          aws iam attach-user-policy \
+              --user-name terraform-deployer \
+              --policy-arn arn:aws:iam::aws:policy/PowerUserAccess
+          ```
+          
+          #### Step 2: Create Access Keys
+          ```bash
+          # Create access key
+          aws iam create-access-key --user-name terraform-deployer
+          
+          # Output will show:
+          # AccessKeyId: AKIA...
+          # SecretAccessKey: ...
+          ```
+          
+          #### Step 3: Add to GitHub Secrets
+          1. Go to your repository: `Settings` → `Secrets and variables` → `Actions`
+          2. Add these secrets:
+             - `AWS_ACCESS_KEY_ID`: Your access key ID
+             - `AWS_SECRET_ACCESS_KEY`: Your secret access key
+          
+          ### Method 2: Cross-Account Roles (Recommended)
+          
+          **Best for**: Production environments, enterprise security, multiple AWS accounts
+          
+          Your backend configurations already reference OrganizationAccountAccessRole:
+          
+          ```hcl
+          # shared/backend-dev.hcl
+          role_arn = "arn:aws:iam::DEV-ACCOUNT-ID:role/OrganizationAccountAccessRole"
+          
+          # shared/backend-staging.hcl  
+          role_arn = "arn:aws:iam::STAGING-ACCOUNT-ID:role/OrganizationAccountAccessRole"
+          
+          # shared/backend-prod.hcl
+          role_arn = "arn:aws:iam::PROD-ACCOUNT-ID:role/OrganizationAccountAccessRole"
+          ```
+          
+          ## 🔑 Required Permissions
+          
+          ### Minimum IAM Policy for Terraform
+          
+          ```json
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "ec2:*",
+                  "elasticloadbalancing:*",
+                  "autoscaling:*",
+                  "cloudwatch:*",
+                  "logs:*",
+                  "iam:ListInstanceProfiles",
+                  "iam:PassRole",
+                  "s3:GetObject",
+                  "s3:PutObject",
+                  "s3:DeleteObject",
+                  "s3:ListBucket",
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:DeleteItem",
+                  "dynamodb:DescribeTable"
+                ],
+                "Resource": "*"
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:CreateBucket",
+                  "s3:DeleteBucket",
+                  "s3:GetBucketVersioning",
+                  "s3:PutBucketVersioning",
+                  "s3:GetBucketEncryption",
+                  "s3:PutBucketEncryption",
+                  "s3:PutBucketPublicAccessBlock"
+                ],
+                "Resource": "arn:aws:s3:::terraform-state-*"
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:CreateTable",
+                  "dynamodb:DeleteTable",
+                  "dynamodb:DescribeTable"
+                ],
+                "Resource": "arn:aws:dynamodb:*:*:table/terraform-lock-*"
+              }
+            ]
+          }
+          ```
+          
+          ## 🚨 Troubleshooting
+          
+          ### Common Issues
+          
+          **Access Denied Errors**
+          ```bash
+          # Check current identity
+          aws sts get-caller-identity
+          
+          # Check assumed role
+          aws sts assume-role \
+              --role-arn arn:aws:iam::ACCOUNT-ID:role/OrganizationAccountAccessRole \
+              --role-session-name test-session
+          ```
+          
+          **GitHub Actions Authentication**
+          - Check secret names match exactly
+          - Verify secrets are set at repository level
+          - Ensure secrets don't contain extra spaces or characters
+          
+          ### Validation Commands
+          
+          ```bash
+          # Test AWS credentials
+          aws sts get-caller-identity
+          
+          # Test S3 access (for Terraform state)
+          aws s3 ls s3://terraform-state-bucket-name
+          
+          # Test EC2 permissions
+          aws ec2 describe-instances --max-items 1
+          ```
+          
+          ## 📋 Setup Checklist
+          
+          ### For Each Environment:
+          
+          - [ ] AWS account identified and accessible
+          - [ ] IAM user/role created with appropriate permissions
+          - [ ] Cross-account roles configured (if using multiple accounts)
+          - [ ] S3 bucket for Terraform state (will be created automatically)
+          - [ ] DynamoDB table for state locking (will be created automatically)
+          - [ ] GitHub secrets configured
+          - [ ] Backend configuration updated with correct account IDs
+          
+          ### Security Checklist:
+          
+          - [ ] Least privilege permissions applied
+          - [ ] Access keys rotated regularly (if using)
+          - [ ] CloudTrail enabled for auditing
+          - [ ] MFA enabled on AWS accounts
+          - [ ] Network access restricted appropriately
+          
+          ### Testing Checklist:
+          
+          - [ ] Credentials work locally: `aws sts get-caller-identity`
+          - [ ] GitHub Actions can authenticate
+          - [ ] Terraform can initialize backend
+          - [ ] Terraform can plan/apply in dev environment
+          - [ ] Cross-account access works (if applicable)
+          
+          ---
+          
+          **Need help with credentials setup? Contact your Platform Engineering team.**
+          CREDS_EOF
+          
+          # Add app-specific information to the setup guide
+          cat >> SETUP.md << EOF
+          
+          ---
+          
+          ## 🎯 App-Specific Configuration
+          
+          This repository was created specifically for **${{ needs.validate-inputs.outputs.app_name }}** with the following configuration:
+          
+          ### AWS Accounts
+          - **Development**: ${{ needs.validate-inputs.outputs.dev_account_id }}
+          - **Staging**: ${{ needs.validate-inputs.outputs.staging_account_id }}
+          - **Production**: ${{ needs.validate-inputs.outputs.prod_account_id }}
+          
+          ### Approval Workflow
+          - **Staging Approvers**: ${{ needs.validate-inputs.outputs.staging_approvers }}
+          - **Production Approvers**: ${{ needs.validate-inputs.outputs.prod_approvers }}
+          
+          ### Primary Region
+          - **AWS Region**: ${{ needs.validate-inputs.outputs.aws_region }}
+          
+          ### Contact Information
+          - **App Team**: ${{ github.event.inputs.app_team_contacts || github.event.client_payload.app_team_contacts }}
+          - **Platform Team**: platform-engineering@company.com
+          
+          ### Repository Details
+          - **Created**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Platform Pipeline**: ${{ github.repository }}
+          - **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          ---
+          
+          **Next Steps for App Team:**
+          1. Clone this repository: \`git clone ${{ needs.create-repository.outputs.clone_url }}\`
+          2. Follow the setup instructions above
+          3. Configure your tfvars and userdata files
+          4. Set up AWS credentials in GitHub secrets
+          5. Push to dev branch to start your first deployment
+          EOF
+          
+          echo "✅ Setup instructions created"
+          
+      - name: Commit and push initial setup
+        run: |
+          cd target-repo
+          
+          # Add all files
+          git add .
+          
+          # Create initial commit
+          git commit -m "feat: initial infrastructure setup for ${{ needs.validate-inputs.outputs.app_name }}
+
+          - Add Terraform infrastructure orchestration
+          - Configure GitOps workflow for dev/staging/production
+          - Set up GitHub environments with approvals
+          - Add example configurations for tfvars and userdata
+          - Configure AWS accounts: dev(${{ needs.validate-inputs.outputs.dev_account_id }}), staging(${{ needs.validate-inputs.outputs.staging_account_id }}), prod(${{ needs.validate-inputs.outputs.prod_account_id }})
+          - Include complete platform documentation as PLATFORM-README.md
+          
+          Created by Platform Engineering Pipeline
+          Pipeline Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Next steps:
+          1. Configure tfvars files with your specific requirements
+          2. Add userdata scripts for server initialization
+          3. Set up AWS credentials in GitHub secrets
+          4. Push to dev branch to start deployment"
+          
+          # Push to main branch
+          git push origin main
+          
+          echo "✅ Initial setup committed and pushed"
+
+  setup-gitops-workflow:
+    name: Setup GitOps Workflow
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, create-repository, setup-repository-structure]
+    
+    steps:
+      - name: Setup GitHub CLI
+        run: |
+          echo "${{ secrets.PLATFORM_GITHUB_TOKEN }}" | gh auth login --with-token
+          
+      - name: Create GitOps branches
+        run: |
+          # Clone the repository
+          gh repo clone "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" target-repo
+          cd target-repo
+          
+          # Create and push dev branch
+          git checkout -b dev
+          git push -u origin dev
+          echo "✅ Created dev branch"
+          
+          # Create and push staging branch
+          git checkout -b staging
+          git push -u origin staging
+          echo "✅ Created staging branch"
+          
+          # Create and push production branch
+          git checkout -b production
+          git push -u origin production
+          echo "✅ Created production branch"
+          
+      - name: Setup GitHub environments
+        run: |
+          REPO_FULL_NAME="${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          
+          # Create dev environment (no protection)
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO_FULL_NAME/environments/dev" \
+            -f wait_timer=0 \
+            -f prevent_self_review=false
+          echo "✅ Created dev environment"
+          
+          # Create staging environment with reviewers
+          STAGING_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.staging_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO_FULL_NAME/environments/staging" \
+            --input - << EOF
+          {
+            "wait_timer": 0,
+            "prevent_self_review": true,
+            "reviewers": $(echo "$STAGING_REVIEWERS" | jq '[.[] | {"type": "User", "id": null}]' --argjson reviewers "$STAGING_REVIEWERS"),
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
+          echo "✅ Created staging environment with reviewers"
+          
+          # Create production environment with reviewers
+          PROD_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.prod_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO_FULL_NAME/environments/production" \
+            --input - << EOF
+          {
+            "wait_timer": 300,
+            "prevent_self_review": true,
+            "reviewers": $(echo "$PROD_REVIEWERS" | jq '[.[] | {"type": "User", "id": null}]' --argjson reviewers "$PROD_REVIEWERS"),
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
+          echo "✅ Created production environment with reviewers"
+          
+      - name: Setup branch protection rules
+        run: |
+          REPO_FULL_NAME="${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          
+          # Protect staging branch
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO_FULL_NAME/branches/staging/protection" \
+            --input - << 'EOF'
+          {
+            "required_status_checks": null,
+            "enforce_admins": false,
+            "required_pull_request_reviews": {
+              "required_approving_review_count": 1,
+              "dismiss_stale_reviews": true,
+              "require_code_owner_reviews": false
+            },
+            "restrictions": null
+          }
+          EOF
+          echo "✅ Protected staging branch"
+          
+          # Protect production branch
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO_FULL_NAME/branches/production/protection" \
+            --input - << 'EOF'
+          {
+            "required_status_checks": null,
+            "enforce_admins": false,
+            "required_pull_request_reviews": {
+              "required_approving_review_count": 2,
+              "dismiss_stale_reviews": true,
+              "require_code_owner_reviews": false
+            },
+            "restrictions": null
+          }
+          EOF
+          echo "✅ Protected production branch"
+
+  notify-completion:
+    name: Notify App Team
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, create-repository, setup-repository-structure, setup-gitops-workflow]
+    if: always()
+    
+    steps:
+      - name: Prepare notification data
+        id: prepare
+        run: |
+          if [[ "${{ needs.setup-gitops-workflow.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "status_emoji=✅" >> $GITHUB_OUTPUT
+            echo "status_text=Successfully Created" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "status_emoji=❌" >> $GITHUB_OUTPUT
+            echo "status_text=Creation Failed" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Send Slack notification
+        if: github.event.inputs.notification_slack_channel != '' || github.event.client_payload.notification_slack_channel != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          custom_payload: |
+            {
+              "text": "${{ steps.prepare.outputs.status_emoji }} Infrastructure Repository ${{ steps.prepare.outputs.status_text }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ steps.prepare.outputs.status_emoji }} Infrastructure Repository ${{ steps.prepare.outputs.status_text }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*App Name:*\n${{ needs.validate-inputs.outputs.app_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Repository:*\n<${{ needs.create-repository.outputs.repository_url }}|${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*App Team:*\n${{ github.event.inputs.app_team_contacts || github.event.client_payload.app_team_contacts }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*AWS Accounts:*\nDev: ${{ needs.validate-inputs.outputs.dev_account_id }}\nStaging: ${{ needs.validate-inputs.outputs.staging_account_id }}\nProd: ${{ needs.validate-inputs.outputs.prod_account_id }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Next Steps for App Team:*\n1. Clone repository: `git clone ${{ needs.create-repository.outputs.clone_url }}`\n2. Configure tfvars and userdata files\n3. Set up AWS credentials in GitHub secrets\n4. Push to dev branch to start deployment"
+                  }
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "Created by Platform Engineering Pipeline | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          
+      - name: Create summary
+        run: |
+          echo "## 🎉 Infrastructure Repository Creation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Repository Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **App Name**: ${{ needs.validate-inputs.outputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository**: [${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}](${{ needs.create-repository.outputs.repository_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.prepare.outputs.status_text }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Account**: ${{ needs.validate-inputs.outputs.dev_account_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Staging Account**: ${{ needs.validate-inputs.outputs.staging_account_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Production Account**: ${{ needs.validate-inputs.outputs.prod_account_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AWS Region**: ${{ needs.validate-inputs.outputs.aws_region }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Approval Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Staging Approvers**: ${{ needs.validate-inputs.outputs.staging_approvers }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Production Approvers**: ${{ needs.validate-inputs.outputs.prod_approvers }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps for App Team" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Clone Repository**: \`git clone ${{ needs.create-repository.outputs.clone_url }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Configure Infrastructure**: Copy and customize tfvars example files" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Add User Data Scripts**: Copy and customize userdata example files" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Set Up AWS Credentials**: Add GitHub secrets for AWS access" >> $GITHUB_STEP_SUMMARY
+          echo "5. **Deploy**: Push to dev branch to start GitOps workflow" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Support" >> $GITHUB_STEP_SUMMARY
+          echo "- **App Team Contact**: ${{ github.event.inputs.app_team_contacts || github.event.client_payload.app_team_contacts }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform Team**: platform-engineering@company.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Documentation**: See README.md and SETUP.md in the created repository" >> $GITHUB_STEP_SUMMARY
