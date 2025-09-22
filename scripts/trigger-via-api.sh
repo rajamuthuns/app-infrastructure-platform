@@ -53,7 +53,7 @@ show_usage() {
     echo "  --prod-approvers USERS               Production approvers, comma-separated (required)"
     echo "  -r, --region REGION                  AWS region (default: us-east-1)"
     echo "  --slack-channel CHANNEL              Slack channel for notifications (optional)"
-    echo "  --custom-modules JSON                Custom modules JSON (optional)"
+
     echo "  --platform-repo REPO                Platform repository (default: platform-team/infrastructure-platform)"
     echo "  --github-token TOKEN                 GitHub token (or set GITHUB_TOKEN env var)"
     echo "  --dry-run                            Show what would be sent without triggering"
@@ -86,7 +86,6 @@ show_usage() {
 AWS_REGION="us-east-1"
 PLATFORM_REPO="${PLATFORM_REPO:-platform-team/infrastructure-platform}"
 DRY_RUN=false
-CUSTOM_MODULES="{}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -129,10 +128,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --slack-channel)
             SLACK_CHANNEL="$2"
-            shift 2
-            ;;
-        --custom-modules)
-            CUSTOM_MODULES="$2"
             shift 2
             ;;
         --platform-repo)
@@ -226,18 +221,16 @@ for account_name in "DEV_ACCOUNT_ID" "STAGING_ACCOUNT_ID" "PROD_ACCOUNT_ID"; do
     fi
 done
 
-# Validate JSON format for custom modules
-if [ "$CUSTOM_MODULES" != "{}" ]; then
-    if ! echo "$CUSTOM_MODULES" | python3 -m json.tool > /dev/null 2>&1; then
-        print_error "Invalid JSON format for custom modules"
-        exit 1
-    fi
-fi
+
 
 print_success "Input validation completed"
 
 # Prepare the API payload
 REPO_NAME="${APP_NAME}-infrastructure"
+
+# Combine AWS accounts and approvers into the new format
+AWS_ACCOUNTS="dev:${DEV_ACCOUNT_ID},staging:${STAGING_ACCOUNT_ID},prod:${PROD_ACCOUNT_ID}"
+APPROVERS="staging:${STAGING_APPROVERS};prod:${PROD_APPROVERS}"
 
 PAYLOAD=$(cat << EOF
 {
@@ -246,14 +239,10 @@ PAYLOAD=$(cat << EOF
     "app_name": "$APP_NAME",
     "target_github_org": "$TARGET_ORG",
     "app_team_contacts": "$APP_TEAM_CONTACTS",
-    "dev_account_id": "$DEV_ACCOUNT_ID",
-    "staging_account_id": "$STAGING_ACCOUNT_ID",
-    "prod_account_id": "$PROD_ACCOUNT_ID",
-    "staging_approvers": "$STAGING_APPROVERS",
-    "prod_approvers": "$PROD_APPROVERS",
+    "aws_accounts": "$AWS_ACCOUNTS",
+    "approvers": "$APPROVERS",
     "aws_region": "$AWS_REGION",
-    "notification_slack_channel": "${SLACK_CHANNEL:-}",
-    "custom_modules": "$CUSTOM_MODULES"
+    "notification_slack_channel": "${SLACK_CHANNEL:-}"
   }
 }
 EOF
