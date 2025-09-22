@@ -1204,15 +1204,14 @@ jobs:
           echo "✅ Created dev environment"
           
           # Create staging environment with reviewers (for both build and destroy)
-          STAGING_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.staging_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
+          echo "Creating staging environment with reviewers: ${{ needs.validate-inputs.outputs.staging_approvers }}"
+          STAGING_REVIEWERS='[{"type": "User", "id": null}]'  # Simplified for now
           if gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/environments/staging" \
             --input - << EOF 2>/dev/null
           {
-            "prevent_self_review": true,
-            "reviewers": $(echo "$STAGING_REVIEWERS" | jq '[.[] | {"type": "User", "id": null}]' --argjson reviewers "$STAGING_REVIEWERS"),
             "deployment_branch_policy": {
               "protected_branches": false,
               "custom_branch_policies": true
@@ -1220,31 +1219,20 @@ jobs:
           }
           EOF
           then
-            echo "✅ Created staging environment with reviewers: ${{ needs.validate-inputs.outputs.staging_approvers }}"
-            echo "   - Approvers required for: Build/Deploy AND Destroy operations"
+            echo "✅ Created staging environment"
+            echo "   - Manual approval setup required in GitHub UI for: ${{ needs.validate-inputs.outputs.staging_approvers }}"
           else
-            echo "⚠️ Environment protection not available on this plan - creating basic environment"
-            gh api --method PUT -H "Accept: application/vnd.github+json" "/repos/$REPO_FULL_NAME/environments/staging" --input - << EOF
-          {
-            "deployment_branch_policy": {
-              "protected_branches": false,
-              "custom_branch_policies": true
-            }
-          }
-          EOF
-            echo "✅ Created staging environment (no reviewers - requires GitHub Pro/Team for private repos)"
+            echo "❌ Failed to create staging environment"
           fi
           
           # Create production environment with reviewers (for both build and destroy)
-          PROD_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.prod_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
+          echo "Creating production environment with reviewers: ${{ needs.validate-inputs.outputs.prod_approvers }}"
           if gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/environments/production" \
             --input - << EOF 2>/dev/null
           {
-            "prevent_self_review": true,
-            "reviewers": $(echo "$PROD_REVIEWERS" | jq '[.[] | {"type": "User", "id": null}]' --argjson reviewers "$PROD_REVIEWERS"),
             "deployment_branch_policy": {
               "protected_branches": false,
               "custom_branch_policies": true
@@ -1252,19 +1240,10 @@ jobs:
           }
           EOF
           then
-            echo "✅ Created production environment with reviewers: ${{ needs.validate-inputs.outputs.prod_approvers }}"
-            echo "   - Approvers required for: Build/Deploy AND Destroy operations"
+            echo "✅ Created production environment"
+            echo "   - Manual approval setup required in GitHub UI for: ${{ needs.validate-inputs.outputs.prod_approvers }}"
           else
-            echo "⚠️ Environment protection not available on this plan - creating basic environment"
-            gh api --method PUT -H "Accept: application/vnd.github+json" "/repos/$REPO_FULL_NAME/environments/production" --input - << EOF
-          {
-            "deployment_branch_policy": {
-              "protected_branches": false,
-              "custom_branch_policies": true
-            }
-          }
-          EOF
-            echo "✅ Created production environment (no reviewers - requires GitHub Pro/Team for private repos)"
+            echo "❌ Failed to create production environment"
           fi
           
       - name: Setup branch protection rules
@@ -1329,10 +1308,15 @@ jobs:
             echo "- 🧪 **Staging**: Ready for staging deployments (requires approval)" >> $GITHUB_STEP_SUMMARY
             echo "- 🚀 **Production**: Ready for production deployments (requires approval)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Environment Approvals (Build & Destroy):**" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔧 **Dev**: No approval required" >> $GITHUB_STEP_SUMMARY
-            echo "- 🧪 **Staging**: Requires approval from ${{ needs.validate-inputs.outputs.staging_approvers }}" >> $GITHUB_STEP_SUMMARY
-            echo "- 🚀 **Production**: Requires approval from ${{ needs.validate-inputs.outputs.prod_approvers }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Environment Setup:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔧 **Dev**: Ready for auto-deployment" >> $GITHUB_STEP_SUMMARY
+            echo "- 🧪 **Staging**: Environment created - add reviewers manually: ${{ needs.validate-inputs.outputs.staging_approvers }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚀 **Production**: Environment created - add reviewers manually: ${{ needs.validate-inputs.outputs.prod_approvers }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Manual Setup Required:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Go to repository Settings → Environments" >> $GITHUB_STEP_SUMMARY
+            echo "2. Configure reviewers for staging and production environments" >> $GITHUB_STEP_SUMMARY
+            echo "3. Enable 'Prevent self-review' if desired" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Next Steps for App Team:**" >> $GITHUB_STEP_SUMMARY
             echo "1. Clone repository: \`git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git\`" >> $GITHUB_STEP_SUMMARY
