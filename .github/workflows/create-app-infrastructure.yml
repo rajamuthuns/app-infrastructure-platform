@@ -1194,7 +1194,6 @@ jobs:
             "/repos/$REPO_FULL_NAME/environments/dev" \
             --input - << EOF
           {
-            "wait_timer": 0,
             "prevent_self_review": false,
             "deployment_branch_policy": {
               "protected_branches": false,
@@ -1206,13 +1205,12 @@ jobs:
           
           # Create staging environment with reviewers (for both build and destroy)
           STAGING_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.staging_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
-          gh api \
+          if gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/environments/staging" \
-            --input - << EOF
+            --input - << EOF 2>/dev/null
           {
-            "wait_timer": 0,
             "prevent_self_review": true,
             "reviewers": $(echo "$STAGING_REVIEWERS" | jq '[.[] | {"type": "User", "id": null}]' --argjson reviewers "$STAGING_REVIEWERS"),
             "deployment_branch_policy": {
@@ -1221,18 +1219,30 @@ jobs:
             }
           }
           EOF
-          echo "✅ Created staging environment with reviewers: ${{ needs.validate-inputs.outputs.staging_approvers }}"
-          echo "   - Approvers required for: Build/Deploy AND Destroy operations"
+          then
+            echo "✅ Created staging environment with reviewers: ${{ needs.validate-inputs.outputs.staging_approvers }}"
+            echo "   - Approvers required for: Build/Deploy AND Destroy operations"
+          else
+            echo "⚠️ Environment protection not available on this plan - creating basic environment"
+            gh api --method PUT -H "Accept: application/vnd.github+json" "/repos/$REPO_FULL_NAME/environments/staging" --input - << EOF
+          {
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
+            echo "✅ Created staging environment (no reviewers - requires GitHub Pro/Team for private repos)"
+          fi
           
           # Create production environment with reviewers (for both build and destroy)
           PROD_REVIEWERS=$(echo "${{ needs.validate-inputs.outputs.prod_approvers }}" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
-          gh api \
+          if gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/environments/production" \
-            --input - << EOF
+            --input - << EOF 2>/dev/null
           {
-            "wait_timer": 300,
             "prevent_self_review": true,
             "reviewers": $(echo "$PROD_REVIEWERS" | jq '[.[] | {"type": "User", "id": null}]' --argjson reviewers "$PROD_REVIEWERS"),
             "deployment_branch_policy": {
@@ -1241,9 +1251,21 @@ jobs:
             }
           }
           EOF
-          echo "✅ Created production environment with reviewers: ${{ needs.validate-inputs.outputs.prod_approvers }}"
-          echo "   - Approvers required for: Build/Deploy AND Destroy operations"
-          echo "   - Wait timer: 5 minutes before deployment can proceed"
+          then
+            echo "✅ Created production environment with reviewers: ${{ needs.validate-inputs.outputs.prod_approvers }}"
+            echo "   - Approvers required for: Build/Deploy AND Destroy operations"
+          else
+            echo "⚠️ Environment protection not available on this plan - creating basic environment"
+            gh api --method PUT -H "Accept: application/vnd.github+json" "/repos/$REPO_FULL_NAME/environments/production" --input - << EOF
+          {
+            "deployment_branch_policy": {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
+          }
+          EOF
+            echo "✅ Created production environment (no reviewers - requires GitHub Pro/Team for private repos)"
+          fi
           
       - name: Setup branch protection rules
         run: |
@@ -1305,7 +1327,7 @@ jobs:
             echo "- 🏠 **Main**: README and workflows only" >> $GITHUB_STEP_SUMMARY
             echo "- 🔧 **Dev**: All configuration files and examples (auto-deploy)" >> $GITHUB_STEP_SUMMARY
             echo "- 🧪 **Staging**: Ready for staging deployments (requires approval)" >> $GITHUB_STEP_SUMMARY
-            echo "- 🚀 **Production**: Ready for production deployments (requires approval + 5min wait)" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚀 **Production**: Ready for production deployments (requires approval)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Environment Approvals (Build & Destroy):**" >> $GITHUB_STEP_SUMMARY
             echo "- 🔧 **Dev**: No approval required" >> $GITHUB_STEP_SUMMARY
