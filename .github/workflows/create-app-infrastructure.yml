@@ -18,42 +18,15 @@ on:
         required: true
         type: string
       
-      dev_account_id:
-        description: 'AWS Development Account ID (12 digits)'
+      aws_accounts:
+        description: 'AWS Account IDs (format: dev:123456789012,staging:123456789013,prod:123456789014)'
         required: true
         type: string
       
-      staging_account_id:
-        description: 'AWS Staging Account ID (12 digits)'
+      approvers:
+        description: 'Approvers (format: staging:user1,user2;prod:user3,user4)'
         required: true
         type: string
-      
-      prod_account_id:
-        description: 'AWS Production Account ID (12 digits)'
-        required: true
-        type: string
-      
-      staging_approvers:
-        description: 'GitHub usernames for staging approvals (comma-separated)'
-        required: true
-        type: string
-      
-      prod_approvers:
-        description: 'GitHub usernames for production approvals (comma-separated)'
-        required: true
-        type: string
-      
-      notification_slack_channel:
-        description: 'Slack channel for notifications (optional, e.g., #app-team-notifications)'
-        required: false
-        type: string
-        default: ''
-      
-      custom_modules:
-        description: 'Additional modules to include (JSON format, optional)'
-        required: false
-        type: string
-        default: '{}'
       
       aws_region:
         description: 'Primary AWS region'
@@ -65,6 +38,12 @@ on:
           - 'us-west-2'
           - 'eu-west-1'
           - 'ap-southeast-1'
+      
+      notification_slack_channel:
+        description: 'Slack channel for notifications (optional, e.g., #app-team-notifications)'
+        required: false
+        type: string
+        default: ''
 
   # API trigger support
   repository_dispatch:
