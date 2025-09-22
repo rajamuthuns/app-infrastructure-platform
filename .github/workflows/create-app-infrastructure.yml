@@ -1194,7 +1194,6 @@ jobs:
             "/repos/$REPO_FULL_NAME/environments/dev" \
             --input - << EOF
           {
-            "prevent_self_review": false,
             "deployment_branch_policy": {
               "protected_branches": false,
               "custom_branch_policies": true
