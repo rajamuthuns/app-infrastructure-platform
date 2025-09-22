@@ -1637,3 +1637,35 @@ Ready for app team configuration and deployment."
           git checkout -b production  
           git push -u origin production
           echo "✅ Created production branch"
+
+  notify-completion:
+    name: Notify App Team
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, create-repository, setup-repository-structure, setup-gitops-workflow]
+    if: always()
+    
+    steps:
+      - name: Create summary
+        run: |
+          if [[ "${{ needs.setup-gitops-workflow.result }}" == "success" ]]; then
+            echo "## ✅ Infrastructure Repository Created Successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Repository:** [${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Branch Structure:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 🏠 **Main**: README and workflows only" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔧 **Dev**: All configuration files and examples" >> $GITHUB_STEP_SUMMARY
+            echo "- 🧪 **Staging**: Ready for staging deployments" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚀 **Production**: Ready for production deployments" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next Steps for App Team:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Clone repository: \`git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git\`" >> $GITHUB_STEP_SUMMARY
+            echo "2. Switch to dev branch: \`git checkout dev\`" >> $GITHUB_STEP_SUMMARY
+            echo "3. Configure tfvars and userdata files" >> $GITHUB_STEP_SUMMARY
+            echo "4. Set up AWS credentials in GitHub secrets" >> $GITHUB_STEP_SUMMARY
+            echo "5. Push to dev branch to start deployment" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Infrastructure Repository Creation Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
