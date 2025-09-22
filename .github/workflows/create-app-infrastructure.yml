@@ -90,15 +90,14 @@ jobs:
           DEV_ACCOUNT=$(echo "$AWS_ACCOUNTS" | grep -oE 'dev:[0-9]{12}' | cut -d: -f2)
           STAGING_ACCOUNT=$(echo "$AWS_ACCOUNTS" | grep -oE 'staging:[0-9]{12}' | cut -d: -f2)
           PROD_ACCOUNT=$(echo "$AWS_ACCOUNTS" | grep -oE 'prod:[0-9]{12}' | cut -d: -f2)
-            
-            # Debug: Show parsed values
-            echo "🔍 Debug - Parsed values:"
-            echo "DEV_ACCOUNT: '$DEV_ACCOUNT'"
-            echo "STAGING_ACCOUNT: '$STAGING_ACCOUNT'"
-            echo "PROD_ACCOUNT: '$PROD_ACCOUNT'"
-            echo "STAGING_APPROVERS: '$STAGING_APPROVERS'"
-            echo "PROD_APPROVERS: '$PROD_APPROVERS'"
-          fi
+          
+          # Debug: Show parsed values
+          echo "🔍 Debug - Parsed values:"
+          echo "DEV_ACCOUNT: '$DEV_ACCOUNT'"
+          echo "STAGING_ACCOUNT: '$STAGING_ACCOUNT'"
+          echo "PROD_ACCOUNT: '$PROD_ACCOUNT'"
+          echo "STAGING_APPROVERS: '$STAGING_APPROVERS'"
+          echo "PROD_APPROVERS: '$PROD_APPROVERS'"
           
           # Validate app name format
           if [[ ! "$APP_NAME" =~ ^[a-z0-9-]+$ ]]; then
