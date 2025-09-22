@@ -84,7 +84,7 @@ show_usage() {
 
 # Default values
 AWS_REGION="us-east-1"
-PLATFORM_REPO="${PLATFORM_REPO:-platform-team/infrastructure-platform}"
+PLATFORM_REPO="${PLATFORM_REPO:-rajamuthuns/terraform-infra-orchestrator-enhanced}"
 DRY_RUN=false
 
 # Parse command line arguments
