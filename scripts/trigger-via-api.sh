@@ -52,7 +52,7 @@ show_usage() {
     echo "  --staging-approvers USERS            Staging approvers, comma-separated (required)"
     echo "  --prod-approvers USERS               Production approvers, comma-separated (required)"
     echo "  -r, --region REGION                  AWS region (default: us-east-1)"
-    echo "  --slack-channel CHANNEL              Slack channel for notifications (optional)"
+
 
     echo "  --platform-repo REPO                Platform repository (default: platform-team/infrastructure-platform)"
     echo "  --github-token TOKEN                 GitHub token (or set GITHUB_TOKEN env var)"
@@ -73,7 +73,7 @@ show_usage() {
     echo "  $0 -a my-api -o acme-corp -c api-team@acme.com \\"
     echo "     -d 123456789012 -s 123456789013 -p 123456789014 \\"
     echo "     --staging-approvers john,jane --prod-approvers senior-dev,tech-lead \\"
-    echo "     -r us-west-2 --slack-channel '#api-team-notifications'"
+    echo "     -r us-west-2"
     echo ""
     echo "  # Dry run to test parameters"
     echo "  $0 --dry-run -a test-app -o test-org -c test@test.com \\"
@@ -124,10 +124,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--region)
             AWS_REGION="$2"
-            shift 2
-            ;;
-        --slack-channel)
-            SLACK_CHANNEL="$2"
             shift 2
             ;;
         --platform-repo)
@@ -228,9 +224,8 @@ print_success "Input validation completed"
 # Prepare the API payload
 REPO_NAME="${APP_NAME}-infrastructure"
 
-# Combine AWS accounts and approvers into the new format
+# Combine AWS accounts into the new format
 AWS_ACCOUNTS="dev:${DEV_ACCOUNT_ID},staging:${STAGING_ACCOUNT_ID},prod:${PROD_ACCOUNT_ID}"
-APPROVERS="staging:${STAGING_APPROVERS};prod:${PROD_APPROVERS}"
 
 PAYLOAD=$(cat << EOF
 {
@@ -240,9 +235,9 @@ PAYLOAD=$(cat << EOF
     "target_github_org": "$TARGET_ORG",
     "app_team_contacts": "$APP_TEAM_CONTACTS",
     "aws_accounts": "$AWS_ACCOUNTS",
-    "approvers": "$APPROVERS",
-    "aws_region": "$AWS_REGION",
-    "notification_slack_channel": "${SLACK_CHANNEL:-}"
+    "staging_approvers": "$STAGING_APPROVERS",
+    "prod_approvers": "$PROD_APPROVERS",
+    "aws_region": "$AWS_REGION"
   }
 }
 EOF
@@ -267,9 +262,7 @@ echo "  Staging: $STAGING_APPROVERS"
 echo "  Production: $PROD_APPROVERS"
 echo ""
 echo "Platform Repository: $PLATFORM_REPO"
-if [ -n "$SLACK_CHANNEL" ]; then
-    echo "Slack Channel: $SLACK_CHANNEL"
-fi
+
 echo ""
 
 # Show payload in dry run mode
@@ -321,9 +314,7 @@ if [ "$HTTP_STATUS" -eq 204 ]; then
     echo "   https://github.com/$PLATFORM_REPO/actions"
     echo ""
     echo "📧 App team will be notified at: $APP_TEAM_CONTACTS"
-    if [ -n "$SLACK_CHANNEL" ]; then
-        echo "💬 Slack notification will be sent to: $SLACK_CHANNEL"
-    fi
+
     echo ""
     print_success "Pipeline trigger completed!"
 else

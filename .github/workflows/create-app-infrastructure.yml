@@ -23,8 +23,13 @@ on:
         required: true
         type: string
       
-      approvers:
-        description: 'Approvers (format: staging:user1,user2;prod:user3,user4)'
+      staging_approvers:
+        description: 'GitHub usernames for staging approvals (comma-separated)'
+        required: true
+        type: string
+      
+      prod_approvers:
+        description: 'GitHub usernames for production approvals (comma-separated)'
         required: true
         type: string
       
@@ -38,12 +43,6 @@ on:
           - 'us-west-2'
           - 'eu-west-1'
           - 'ap-southeast-1'
-      
-      notification_slack_channel:
-        description: 'Slack channel for notifications (optional, e.g., #app-team-notifications)'
-        required: false
-        type: string
-        default: ''
 
   # API trigger support
   repository_dispatch:
@@ -76,12 +75,30 @@ jobs:
           # Get inputs from either workflow_dispatch or repository_dispatch
           APP_NAME="${{ github.event.inputs.app_name || github.event.client_payload.app_name }}"
           TARGET_ORG="${{ github.event.inputs.target_github_org || github.event.client_payload.target_github_org }}"
-          DEV_ACCOUNT="${{ github.event.inputs.dev_account_id || github.event.client_payload.dev_account_id }}"
-          STAGING_ACCOUNT="${{ github.event.inputs.staging_account_id || github.event.client_payload.staging_account_id }}"
-          PROD_ACCOUNT="${{ github.event.inputs.prod_account_id || github.event.client_payload.prod_account_id }}"
+          AWS_ACCOUNTS="${{ github.event.inputs.aws_accounts || github.event.client_payload.aws_accounts }}"
           STAGING_APPROVERS="${{ github.event.inputs.staging_approvers || github.event.client_payload.staging_approvers }}"
           PROD_APPROVERS="${{ github.event.inputs.prod_approvers || github.event.client_payload.prod_approvers }}"
           AWS_REGION="${{ github.event.inputs.aws_region || github.event.client_payload.aws_region || 'us-east-1' }}"
+          
+          # Debug: Show raw inputs
+          echo "🔍 Debug - Raw inputs:"
+          echo "AWS_ACCOUNTS: '$AWS_ACCOUNTS'"
+          echo "STAGING_APPROVERS: '$STAGING_APPROVERS'"
+          echo "PROD_APPROVERS: '$PROD_APPROVERS'"
+          
+          # Parse AWS accounts (format: dev:123456789012,staging:123456789013,prod:123456789014)
+          DEV_ACCOUNT=$(echo "$AWS_ACCOUNTS" | grep -oE 'dev:[0-9]{12}' | cut -d: -f2)
+          STAGING_ACCOUNT=$(echo "$AWS_ACCOUNTS" | grep -oE 'staging:[0-9]{12}' | cut -d: -f2)
+          PROD_ACCOUNT=$(echo "$AWS_ACCOUNTS" | grep -oE 'prod:[0-9]{12}' | cut -d: -f2)
+            
+            # Debug: Show parsed values
+            echo "🔍 Debug - Parsed values:"
+            echo "DEV_ACCOUNT: '$DEV_ACCOUNT'"
+            echo "STAGING_ACCOUNT: '$STAGING_ACCOUNT'"
+            echo "PROD_ACCOUNT: '$PROD_ACCOUNT'"
+            echo "STAGING_APPROVERS: '$STAGING_APPROVERS'"
+            echo "PROD_APPROVERS: '$PROD_APPROVERS'"
+          fi
           
           # Validate app name format
           if [[ ! "$APP_NAME" =~ ^[a-z0-9-]+$ ]]; then
