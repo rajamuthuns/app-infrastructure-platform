@@ -201,7 +201,7 @@ jobs:
       - name: Checkout base infrastructure repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.BASE_INFRASTRUCTURE_REPO || 'rajamuthuns/terraform-infra-orchestrator-enhanced' }}
+          repository: rajamuthuns/terraform-infra-orchestrator-enhanced
           path: base-repo
         
       - name: Setup Git
