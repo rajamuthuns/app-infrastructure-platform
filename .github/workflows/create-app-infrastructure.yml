@@ -231,254 +231,7 @@ jobs:
           
           echo "✅ Main branch setup completed (minimal files only)"
           
-      - name: Create empty tfvars directory with examples
-        run: |
-          cd target-repo
-          mkdir -p tfvars
-          
-          # Create tfvars README
-          cat > tfvars/README.md << 'EOF'
-          # Terraform Variables Configuration
-          
-          This directory contains environment-specific configuration files for your infrastructure.
-          
-          ## 📋 Required Files
-          
-          You need to create the following files with your specific configurations:
-          
-          - `dev-terraform.tfvars` - Development environment configuration
-          - `stg-terraform.tfvars` - Staging environment configuration  
-          - `prod-terraform.tfvars` - Production environment configuration
-          
-          ## 🚀 Getting Started
-          
-          1. Copy the example files and remove the `.example` extension
-          2. Update the values according to your requirements
-          3. Commit the files to your repository
-          4. Push to dev branch to trigger deployment
-          
-          ## 🔒 Security Note
-          
-          These files may contain sensitive information. Ensure your repository is private and follow your organization's security guidelines.
-          
-          ## 📖 Configuration Guide
-          
-          See the main README.md and SETUP.md files for detailed configuration instructions.
-          EOF
-          
-          # Create example tfvars files
-          cat > tfvars/dev-terraform.tfvars.example << EOF
-          # Development Environment Configuration
-          project_name = "${{ needs.validate-inputs.outputs.app_name }}"
-          environment = "dev"
-          account_id = "${{ needs.validate-inputs.outputs.dev_account_id }}"
-          aws_region = "${{ needs.validate-inputs.outputs.aws_region }}"
-          
-          # GitLab configuration for private modules
-          gitlab_org = "your-gitlab-org"
-          
-          # Base modules configuration
-          base_modules = {
-            ec2 = {
-              repository = "ec2-base-module"
-              version    = "main"
-            }
-            alb = {
-              repository = "alb-base-module"
-              version    = "main"
-            }
-          }
-          
-          # ALB Configuration
-          alb_spec = {
-            web-alb = {
-              vpc_name = "dev-vpc"
-              http_enabled = true
-              https_enabled = false
-              name = "web-alb"
-            }
-          }
-          
-          # EC2 Configuration
-          ec2_spec = {
-            "web-server" = {
-              enable_alb_integration = true
-              alb_name = "web-alb"
-              instance_type = "t3.micro"
-              vpc_name = "dev-vpc"
-              subnet_name = "dev-public-subnet-1"
-              ami_name = "amzn2-ami-hvm-*-x86_64-gp2"
-              os_type = "linux"
-              root_volume_size = 20
-              key_name = "your-key-pair"
-            }
-          }
-          EOF
-          
-          # Create staging and production examples
-          sed 's/dev/staging/g; s/t3.micro/t3.small/g; s/20/30/g' tfvars/dev-terraform.tfvars.example > tfvars/stg-terraform.tfvars.example
-          sed -i "s/${{ needs.validate-inputs.outputs.dev_account_id }}/${{ needs.validate-inputs.outputs.staging_account_id }}/g" tfvars/stg-terraform.tfvars.example
-          
-          sed 's/dev/prod/g; s/staging/prod/g; s/t3.small/t3.medium/g; s/30/50/g; s/false/true/g' tfvars/stg-terraform.tfvars.example > tfvars/prod-terraform.tfvars.example
-          sed -i "s/${{ needs.validate-inputs.outputs.staging_account_id }}/${{ needs.validate-inputs.outputs.prod_account_id }}/g" tfvars/prod-terraform.tfvars.example
-          
-          echo "✅ tfvars directory created with examples"
-          
-      - name: Create empty userdata directory with examples
-        run: |
-          cd target-repo
-          mkdir -p userdata
-          
-          # Create userdata README
-          cat > userdata/README.md << 'EOF'
-          # User Data Scripts
-          
-          This directory contains server initialization scripts that run when your EC2 instances start.
-          
-          ## 📋 Required Files
-          
-          You need to create the following files based on your operating system requirements:
-          
-          - `userdata-linux.sh` - Linux server initialization script
-          - `userdata-windows.ps1` - Windows server initialization script (if needed)
-          
-          ## 🚀 Getting Started
-          
-          1. Copy the example files and remove the `.example` extension
-          2. Customize the scripts for your application requirements
-          3. Test the scripts in development environment first
-          4. Commit the files to your repository
-          
-          ## 🔒 Security Note
-          
-          These scripts run with root/administrator privileges. Follow security best practices:
-          - Don't hardcode secrets or passwords
-          - Use AWS Systems Manager Parameter Store or Secrets Manager for sensitive data
-          - Validate and sanitize any external inputs
-          
-          ## 📖 Script Guide
-          
-          See the main README.md and SETUP.md files for detailed scripting instructions.
-          EOF
-          
-          # Create example userdata files
-          cat > userdata/userdata-linux.sh.example << 'EOF'
-          #!/bin/bash
-          
-          # Linux Server Initialization Script
-          # This script runs when your EC2 instance starts
-          
-          # Variables passed from Terraform
-          ENVIRONMENT="${environment}"
-          HOSTNAME="${hostname}"
-          OS_TYPE="${os_type}"
-          
-          # Set hostname
-          hostnamectl set-hostname "$HOSTNAME"
-          
-          # Update system
-          yum update -y
-          
-          # Install basic packages
-          yum install -y \
-              curl \
-              wget \
-              unzip \
-              git \
-              htop \
-              awscli
-          
-          # Install Docker (example)
-          yum install -y docker
-          systemctl start docker
-          systemctl enable docker
-          usermod -a -G docker ec2-user
-          
-          # Install your application
-          # Example: Download and run your application
-          # wget https://your-app-releases.com/latest.tar.gz
-          # tar -xzf latest.tar.gz
-          # ./install.sh
-          
-          # Configure application for environment
-          case "$ENVIRONMENT" in
-              "dev")
-                  echo "Configuring for development environment"
-                  # Development-specific configuration
-                  ;;
-              "staging")
-                  echo "Configuring for staging environment"
-                  # Staging-specific configuration
-                  ;;
-              "prod")
-                  echo "Configuring for production environment"
-                  # Production-specific configuration
-                  ;;
-          esac
-          
-          # Start your application service
-          # systemctl start your-app
-          # systemctl enable your-app
-          
-          # Log completion
-          echo "User data script completed for $HOSTNAME in $ENVIRONMENT environment" >> /var/log/userdata.log
-          EOF
-          
-          cat > userdata/userdata-windows.ps1.example << 'EOF'
-          # Windows Server Initialization Script
-          # This script runs when your EC2 instance starts
-          
-          # Variables passed from Terraform
-          $Environment = "${environment}"
-          $Hostname = "${hostname}"
-          $OSType = "${os_type}"
-          
-          # Set hostname
-          Rename-Computer -NewName $Hostname -Force
-          
-          # Install Chocolatey package manager
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-          iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-          
-          # Install basic packages
-          choco install -y git
-          choco install -y awscli
-          choco install -y 7zip
-          
-          # Install IIS (example web server)
-          Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole, IIS-WebServer, IIS-CommonHttpFeatures, IIS-HttpErrors, IIS-HttpLogging, IIS-RequestFiltering, IIS-StaticContent
-          
-          # Install your application
-          # Example: Download and install your application
-          # Invoke-WebRequest -Uri "https://your-app-releases.com/latest.msi" -OutFile "C:\temp\app.msi"
-          # Start-Process msiexec.exe -Wait -ArgumentList '/I C:\temp\app.msi /quiet'
-          
-          # Configure application for environment
-          switch ($Environment) {
-              "dev" {
-                  Write-Host "Configuring for development environment"
-                  # Development-specific configuration
-              }
-              "staging" {
-                  Write-Host "Configuring for staging environment"
-                  # Staging-specific configuration
-              }
-              "prod" {
-                  Write-Host "Configuring for production environment"
-                  # Production-specific configuration
-              }
-          }
-          
-          # Start your application service
-          # Start-Service -Name "YourAppService"
-          # Set-Service -Name "YourAppService" -StartupType Automatic
-          
-          # Log completion
-          Add-Content -Path "C:\temp\userdata.log" -Value "User data script completed for $Hostname in $Environment environment"
-          EOF
-          
-          echo "✅ userdata directory created with examples"
+
           
 
           
@@ -1182,6 +935,227 @@ jobs:
           else
             echo "⚠️ No workflows directory found in base repository"
           fi
+          
+          # Create tfvars directory with examples
+          mkdir -p tfvars
+          cat > tfvars/README.md << 'EOF'
+# Terraform Variables Configuration
+
+This directory contains environment-specific configuration files for your infrastructure.
+
+## 📋 Required Files
+
+You need to create the following files with your specific configurations:
+
+- `dev-terraform.tfvars` - Development environment configuration
+- `stg-terraform.tfvars` - Staging environment configuration  
+- `prod-terraform.tfvars` - Production environment configuration
+
+## 🚀 Getting Started
+
+1. Copy the example files and remove the `.example` extension
+2. Update the values according to your requirements
+3. Commit the files to your repository
+4. Push to dev branch to trigger deployment
+
+## 🔒 Security Note
+
+These files may contain sensitive information. Ensure your repository is private and follow your organization's security guidelines.
+EOF
+
+          # Create example tfvars files
+          cat > tfvars/dev-terraform.tfvars.example << EOF
+# Development Environment Configuration
+project_name = "${{ needs.validate-inputs.outputs.app_name }}"
+environment = "dev"
+account_id = "${{ needs.validate-inputs.outputs.dev_account_id }}"
+aws_region = "${{ needs.validate-inputs.outputs.aws_region }}"
+
+# GitLab configuration for private modules
+gitlab_org = "your-gitlab-org"
+
+# Base modules configuration
+base_modules = {
+  ec2 = {
+    repository = "ec2-base-module"
+    version    = "main"
+  }
+  alb = {
+    repository = "alb-base-module"
+    version    = "main"
+  }
+}
+
+# ALB Configuration
+alb_spec = {
+  web-alb = {
+    vpc_name = "dev-vpc"
+    http_enabled = true
+    https_enabled = false
+    name = "web-alb"
+  }
+}
+
+# EC2 Configuration
+ec2_spec = {
+  "web-server" = {
+    enable_alb_integration = true
+    alb_name = "web-alb"
+    instance_type = "t3.micro"
+    vpc_name = "dev-vpc"
+    subnet_name = "dev-public-subnet-1"
+    ami_name = "amzn2-ami-hvm-*-x86_64-gp2"
+    os_type = "linux"
+    root_volume_size = 20
+    key_name = "your-key-pair"
+  }
+}
+EOF
+
+          # Create staging and production examples
+          sed 's/dev/staging/g; s/t3.micro/t3.small/g; s/20/30/g' tfvars/dev-terraform.tfvars.example > tfvars/stg-terraform.tfvars.example
+          sed -i "s/${{ needs.validate-inputs.outputs.dev_account_id }}/${{ needs.validate-inputs.outputs.staging_account_id }}/g" tfvars/stg-terraform.tfvars.example
+          
+          sed 's/dev/prod/g; s/staging/prod/g; s/t3.small/t3.medium/g; s/30/50/g; s/false/true/g' tfvars/stg-terraform.tfvars.example > tfvars/prod-terraform.tfvars.example
+          sed -i "s/${{ needs.validate-inputs.outputs.staging_account_id }}/${{ needs.validate-inputs.outputs.prod_account_id }}/g" tfvars/prod-terraform.tfvars.example
+
+          # Create userdata directory with examples
+          mkdir -p userdata
+          cat > userdata/README.md << 'EOF'
+# User Data Scripts
+
+This directory contains server initialization scripts that run when your EC2 instances start.
+
+## 📋 Required Files
+
+You need to create the following files based on your operating system requirements:
+
+- `userdata-linux.sh` - Linux server initialization script
+- `userdata-windows.ps1` - Windows server initialization script (if needed)
+
+## 🚀 Getting Started
+
+1. Copy the example files and remove the `.example` extension
+2. Customize the scripts for your application requirements
+3. Test the scripts in development environment first
+4. Commit the files to your repository
+EOF
+
+          # Create example userdata files
+          cat > userdata/userdata-linux.sh.example << 'EOF'
+#!/bin/bash
+
+# Linux Server Initialization Script
+# This script runs when your EC2 instance starts
+
+# Variables passed from Terraform
+ENVIRONMENT="${environment}"
+HOSTNAME="${hostname}"
+OS_TYPE="${os_type}"
+
+# Set hostname
+hostnamectl set-hostname "$HOSTNAME"
+
+# Update system
+yum update -y
+
+# Install basic packages
+yum install -y \
+    curl \
+    wget \
+    unzip \
+    git \
+    htop \
+    awscli
+
+# Install Docker (example)
+yum install -y docker
+systemctl start docker
+systemctl enable docker
+usermod -a -G docker ec2-user
+
+# Configure application for environment
+case "$ENVIRONMENT" in
+    "dev")
+        echo "Configuring for development environment"
+        ;;
+    "staging")
+        echo "Configuring for staging environment"
+        ;;
+    "prod")
+        echo "Configuring for production environment"
+        ;;
+esac
+
+# Log completion
+echo "User data script completed for $HOSTNAME in $ENVIRONMENT environment" >> /var/log/userdata.log
+EOF
+
+          # Create dev-specific README
+          cat > README.md << EOF
+# ${{ needs.validate-inputs.outputs.app_name }} Infrastructure - Development Branch
+
+This is the development branch containing all infrastructure configuration files.
+
+## 🏗️ Architecture
+
+- **Development**: Account ID ${{ needs.validate-inputs.outputs.dev_account_id }}
+- **Staging**: Account ID ${{ needs.validate-inputs.outputs.staging_account_id }}  
+- **Production**: Account ID ${{ needs.validate-inputs.outputs.prod_account_id }}
+
+## 🚀 Quick Start
+
+### 1. Configure Your Infrastructure
+
+\`\`\`bash
+# Copy example files and customize
+cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
+cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
+cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
+\`\`\`
+
+### 2. Add User Data Scripts
+
+\`\`\`bash
+cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
+# Edit scripts for your application
+\`\`\`
+
+### 3. Deploy with GitOps
+
+\`\`\`bash
+git add .
+git commit -m "feat: configure infrastructure"
+git push origin dev
+\`\`\`
+
+## 🌍 GitOps Workflow
+
+- **Dev**: Auto-deploys on push to dev branch
+- **Staging**: Create PR from dev → staging (requires approval from: ${{ needs.validate-inputs.outputs.staging_approvers }})
+- **Production**: Create PR from staging → production (requires approval from: ${{ needs.validate-inputs.outputs.prod_approvers }})
+
+---
+Generated by Platform Engineering Pipeline
+EOF
+
+          # Commit all configuration files to dev branch
+          git add .
+          git commit -m "feat: add infrastructure configuration files
+
+- Add Terraform infrastructure files (main.tf, variables.tf, outputs.tf)
+- Add environment-specific tfvars examples
+- Add userdata script examples
+- Add AWS account configurations
+- Add backend configurations for all environments
+- Add deployment scripts and documentation
+- Add GitHub workflows for build and destroy
+
+Ready for app team configuration and deployment."
+
+          # Push dev branch
+          git push -u origin dev
+          echo "✅ Created dev branch with all configuration files"
           
       - name: Setup GitHub environments
         run: |
