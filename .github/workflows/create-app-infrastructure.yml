@@ -1405,87 +1405,115 @@ jobs:
           echo "- Contact Platform Engineering team" >> $GITHUB_STEP_SUMMARY
           echo "- View this workflow run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Happy coding! 🚀" >> $GITHUB_STEP_SUMMARY 
-     - name: Create notification issue for app team
+          echo "Happy coding! 🚀" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Create notification issue for app team
         if: always() && needs.setup-gitops-workflow.result == 'success'
         run: |
           # Extract GitHub usernames from email addresses (if they follow email@github-username pattern)
           APP_CONTACTS="${{ github.event.inputs.app_team_contacts || github.event.client_payload.app_team_contacts }}"
           
           # Create an issue in the new repository to notify the app team
+          ISSUE_BODY=$(cat << 'ISSUE_EOF'
+            Hello App Team! 👋
+
+            Your infrastructure repository has been created and is ready for use.
+
+            ## 🏗️ Repository Details
+            - **Repository**: [${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }})
+            - **App Name**: ${{ needs.validate-inputs.outputs.app_name }}
+            - **Created by**: ${{ github.actor }}
+            - **AWS Accounts**: Dev(${{ needs.validate-inputs.outputs.dev_account_id }}), Staging(${{ needs.validate-inputs.outputs.staging_account_id }}), Prod(${{ needs.validate-inputs.outputs.prod_account_id }})
+
+            ## 🚀 Quick Start Guide
+
+            ### 1. Clone and Setup
+            \`\`\`bash
+            # Clone your repository
+            git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git
+            cd ${{ needs.validate-inputs.outputs.repo_name }}
+
+            # Switch to dev branch (where all your config files are)
+            git checkout dev
+            \`\`\`
+
+            ### 2. Configure Your Infrastructure
+            \`\`\`bash
+            # Copy example files and customize them
+            cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
+            cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
+            cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
+
+            # Copy userdata scripts and customize
+            cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
+            \`\`\`
+
+            ### 3. Set Up GitHub Secrets
+            Go to your repository Settings → Secrets and variables → Actions, and add:
+            - \`AWS_ACCESS_KEY_ID\` - Your AWS access key
+            - \`AWS_SECRET_ACCESS_KEY\` - Your AWS secret key
+            - \`PRIVATE_REPO_TOKEN\` - GitHub token for private modules (if needed)
+
+            ### 4. Deploy Your Infrastructure
+            \`\`\`bash
+            # Commit your changes
+            git add .
+            git commit -m \"feat: configure infrastructure for ${{ needs.validate-inputs.outputs.app_name }}\"
+
+            # Push to dev branch (triggers automatic deployment)
+            git push origin dev
+            \`\`\`
+
+            ## 🌍 GitOps Workflow
+            - **Dev**: Auto-deploys when you push to dev branch
+            - **Staging**: Create PR from dev → staging (requires approval from: ${{ needs.validate-inputs.outputs.staging_approvers }})
+            - **Production**: Create PR from staging → production (requires approval from: ${{ needs.validate-inputs.outputs.prod_approvers }})
+
+            ## 📖 Documentation
+            - [README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/README.md) - Project overview
+            - [SETUP.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/SETUP.md) - Detailed setup guide
+            - [tfvars/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/tfvars/README.md) - Configuration guide
+            - [userdata/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/userdata/README.md) - Script guide
+
+            ## 🆘 Need Help?
+            - Check the documentation links above
+            - Contact Platform Engineering team
+            - Comment on this issue for questions
+
+            **Platform Engineering Team**  
+            Repository created via workflow: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ---
+            Please close this issue once you've completed the setup. Happy coding! 🚀
+            ISSUE_EOF
+            )
+                      
+                      gh issue create \
+                        --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
+                        --title "🎉 Your Infrastructure Repository is Ready!" \
+                        --body "$ISSUE_BODY" \
+                        --label "setup,platform-engineering"
+                      
+                      echo "✅ Created notification issue in the new repository"Please c
+            lose this issue once you've completed the setup. Happy coding! 🚀
+            ISSUE_EOF
+            )
+                      
+                      gh issue create \
+                        --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
+                        --title "🎉 Your Infrastructure Repository is Ready!" \
+                        --body "$ISSUE_BODY" \
+                        --label "setup,platform-engineering"
+                      
+                      echo "✅ Created notification issue in the new repository"Please
+            close this issue once you've completed the setup. Happy coding! 🚀
+            ISSUE_EOF
+            )
+          
           gh issue create \
             --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
             --title "🎉 Your Infrastructure Repository is Ready!" \
-            --body "Hello App Team! 👋
-
-Your infrastructure repository has been created and is ready for use.
-
-## 🏗️ Repository Details
-- **Repository**: [${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }})
-- **App Name**: ${{ needs.validate-inputs.outputs.app_name }}
-- **Created by**: ${{ github.actor }}
-- **AWS Accounts**: Dev(${{ needs.validate-inputs.outputs.dev_account_id }}), Staging(${{ needs.validate-inputs.outputs.staging_account_id }}), Prod(${{ needs.validate-inputs.outputs.prod_account_id }})
-
-## 🚀 Quick Start Guide
-
-### 1. Clone and Setup
-\`\`\`bash
-# Clone your repository
-git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git
-cd ${{ needs.validate-inputs.outputs.repo_name }}
-
-# Switch to dev branch (where all your config files are)
-git checkout dev
-\`\`\`
-
-### 2. Configure Your Infrastructure
-\`\`\`bash
-# Copy example files and customize them
-cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
-cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
-cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
-
-# Copy userdata scripts and customize
-cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
-\`\`\`
-
-### 3. Set Up GitHub Secrets
-Go to your repository Settings → Secrets and variables → Actions, and add:
-- \`AWS_ACCESS_KEY_ID\` - Your AWS access key
-- \`AWS_SECRET_ACCESS_KEY\` - Your AWS secret key
-- \`PRIVATE_REPO_TOKEN\` - GitHub token for private modules (if needed)
-
-### 4. Deploy Your Infrastructure
-\`\`\`bash
-# Commit your changes
-git add .
-git commit -m \"feat: configure infrastructure for ${{ needs.validate-inputs.outputs.app_name }}\"
-
-# Push to dev branch (triggers automatic deployment)
-git push origin dev
-\`\`\`
-
-## 🌍 GitOps Workflow
-- **Dev**: Auto-deploys when you push to dev branch
-- **Staging**: Create PR from dev → staging (requires approval from: ${{ needs.validate-inputs.outputs.staging_approvers }})
-- **Production**: Create PR from staging → production (requires approval from: ${{ needs.validate-inputs.outputs.prod_approvers }})
-
-## 📖 Documentation
-- [README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/README.md) - Project overview
-- [SETUP.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/SETUP.md) - Detailed setup guide
-- [tfvars/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/tfvars/README.md) - Configuration guide
-- [userdata/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/userdata/README.md) - Script guide
-
-## 🆘 Need Help?
-- Check the documentation links above
-- Contact Platform Engineering team
-- Comment on this issue for questions
-
-**Platform Engineering Team**  
-Repository created via workflow: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
----
-Please close this issue once you've completed the setup. Happy coding! 🚀" \
+            --body "$ISSUE_BODY" \
             --label "setup,platform-engineering"
           
           echo "✅ Created notification issue in the new repository"
