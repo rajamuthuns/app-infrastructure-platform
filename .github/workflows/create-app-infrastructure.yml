@@ -954,19 +954,21 @@ jobs:
           git push -u origin dev
           echo "✅ Created dev branch with all configuration files"
           
-      - name: Create staging and production branches
+      - name: Create empty staging and production branches
         run: |
           cd target-repo
           
-          # Create staging branch from dev
+          # Create empty staging branch from main (not dev)
+          git checkout main
           git checkout -b staging
           git push -u origin staging
-          echo "✅ Created staging branch"
+          echo "✅ Created empty staging branch (content comes via PR from dev)"
           
-          # Create production branch from staging
+          # Create empty production branch from main (not staging)
+          git checkout main
           git checkout -b production  
           git push -u origin production
-          echo "✅ Created production branch"
+          echo "✅ Created empty production branch (content comes via PR from staging)"
 
       - name: Setup GitHub environments
         run: |
