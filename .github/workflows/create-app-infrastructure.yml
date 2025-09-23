@@ -1249,12 +1249,12 @@ jobs:
         run: |
           REPO_FULL_NAME="${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
           
-          # Protect staging branch
-          gh api \
+          # Try to protect staging branch (requires GitHub Pro for private repos)
+          if gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/branches/staging/protection" \
-            --input - << 'EOF'
+            --input - << 'EOF' 2>/dev/null
           {
             "required_status_checks": null,
             "enforce_admins": false,
@@ -1266,14 +1266,19 @@ jobs:
             "restrictions": null
           }
           EOF
-          echo "✅ Protected staging branch"
+          then
+            echo "✅ Protected staging branch"
+          else
+            echo "⚠️ Branch protection not available - requires GitHub Pro for private repos"
+            echo "   Manual setup: Go to Settings → Branches → Add rule for 'staging'"
+          fi
           
-          # Protect production branch
-          gh api \
+          # Try to protect production branch (requires GitHub Pro for private repos)
+          if gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$REPO_FULL_NAME/branches/production/protection" \
-            --input - << 'EOF'
+            --input - << 'EOF' 2>/dev/null
           {
             "required_status_checks": null,
             "enforce_admins": false,
@@ -1285,7 +1290,12 @@ jobs:
             "restrictions": null
           }
           EOF
-          echo "✅ Protected production branch"
+          then
+            echo "✅ Protected production branch"
+          else
+            echo "⚠️ Branch protection not available - requires GitHub Pro for private repos"
+            echo "   Manual setup: Go to Settings → Branches → Add rule for 'production'"
+          fi
 
   notify-completion:
     name: Notify App Team
