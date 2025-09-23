@@ -940,15 +940,15 @@ jobs:
           git add .
           git commit -m "feat: add infrastructure configuration files
 
-- Add Terraform infrastructure files (main.tf, variables.tf, outputs.tf)
-- Add environment-specific tfvars examples
-- Add userdata script examples
-- Add AWS account configurations
-- Add backend configurations for all environments
-- Add deployment scripts and documentation
-- Add GitHub workflows for build and destroy
+            - Add Terraform infrastructure files (main.tf, variables.tf, outputs.tf)
+            - Add environment-specific tfvars examples
+            - Add userdata script examples
+            - Add AWS account configurations
+            - Add backend configurations for all environments
+            - Add deployment scripts and documentation
+            - Add GitHub workflows for build and destroy
 
-Ready for app team configuration and deployment."
+          Ready for app team configuration and deployment."
 
           # Push dev branch
           git push -u origin dev
