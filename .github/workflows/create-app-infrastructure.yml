@@ -876,18 +876,32 @@ jobs:
           # Create dev branch
           git checkout -b dev
           
-          # Copy all infrastructure files to dev branch
-          cp ../base-repo/main.tf .
-          cp ../base-repo/variables.tf .
-          cp ../base-repo/outputs.tf .
-          cp ../base-repo/backend.tf .
-          cp ../base-repo/Makefile .
-          cp ../base-repo/deploy.sh .
-          chmod +x deploy.sh
+          # Copy core infrastructure files (if they exist)
+          echo "📋 Copying infrastructure files from base repository..."
           
-          # Copy configuration files
-          mkdir -p config
-          cp ../base-repo/config/*.json config/
+          # Copy Terraform files
+          [ -f "../base-repo/main.tf" ] && cp ../base-repo/main.tf . || echo "⚠️ main.tf not found"
+          [ -f "../base-repo/variables.tf" ] && cp ../base-repo/variables.tf . || echo "⚠️ variables.tf not found"
+          [ -f "../base-repo/outputs.tf" ] && cp ../base-repo/outputs.tf . || echo "⚠️ outputs.tf not found"
+          [ -f "../base-repo/backend.tf" ] && cp ../base-repo/backend.tf . || echo "⚠️ backend.tf not found"
+          
+          # Copy build files
+          [ -f "../base-repo/Makefile" ] && cp ../base-repo/Makefile . || echo "⚠️ Makefile not found"
+          [ -f "../base-repo/deploy.sh" ] && cp ../base-repo/deploy.sh . && chmod +x deploy.sh || echo "⚠️ deploy.sh not found"
+          
+          # Copy gitignore
+          [ -f "../base-repo/.gitignore" ] && cp ../base-repo/.gitignore . || echo "⚠️ .gitignore not found"
+          
+          echo "✅ Infrastructure files copied (available files only)"
+          
+          # Copy configuration files (if they exist)
+          if [ -d "../base-repo/config" ]; then
+            mkdir -p config
+            cp ../base-repo/config/*.json config/ 2>/dev/null || echo "⚠️ No .json files found in config directory"
+          else
+            mkdir -p config
+            echo "⚠️ No config directory found in base repository - creating empty config directory"
+          fi
           
           # Update AWS accounts configuration
           cat > config/aws-accounts.json << EOF
@@ -907,24 +921,41 @@ jobs:
           }
           EOF
           
-          # Copy shared backend configurations
-          mkdir -p shared
-          cp ../base-repo/shared/*.hcl shared/
+          # Copy shared backend configurations (if they exist)
+          if [ -d "../base-repo/shared" ]; then
+            mkdir -p shared
+            cp ../base-repo/shared/*.hcl shared/ 2>/dev/null || echo "⚠️ No .hcl files found in shared directory"
+            
+            # Update backend configurations with account IDs (if files exist)
+            if [ -f "shared/backend-dev.hcl" ]; then
+              sed -i "s/REPLACE_WITH_DEV_ACCOUNT_ID/${{ needs.validate-inputs.outputs.dev_account_id }}/g" shared/backend-dev.hcl
+            fi
+            if [ -f "shared/backend-staging.hcl" ]; then
+              sed -i "s/REPLACE_WITH_STAGING_ACCOUNT_ID/${{ needs.validate-inputs.outputs.staging_account_id }}/g" shared/backend-staging.hcl
+            fi
+            if [ -f "shared/backend-prod.hcl" ]; then
+              sed -i "s/REPLACE_WITH_PRODUCTION_ACCOUNT_ID/${{ needs.validate-inputs.outputs.prod_account_id }}/g" shared/backend-prod.hcl
+            fi
+            echo "✅ Backend configurations updated (if present)"
+          else
+            echo "⚠️ No shared directory found in base repository - skipping backend configs"
+          fi
           
-          # Update backend configurations with account IDs
-          sed -i "s/REPLACE_WITH_DEV_ACCOUNT_ID/${{ needs.validate-inputs.outputs.dev_account_id }}/g" shared/backend-dev.hcl
-          sed -i "s/REPLACE_WITH_STAGING_ACCOUNT_ID/${{ needs.validate-inputs.outputs.staging_account_id }}/g" shared/backend-staging.hcl
-          sed -i "s/REPLACE_WITH_PRODUCTION_ACCOUNT_ID/${{ needs.validate-inputs.outputs.prod_account_id }}/g" shared/backend-prod.hcl
+          # Copy scripts (if they exist)
+          if [ -d "../base-repo/scripts" ]; then
+            mkdir -p scripts
+            cp ../base-repo/scripts/*.sh scripts/ 2>/dev/null || echo "⚠️ No .sh files found in scripts directory"
+            chmod +x scripts/*.sh 2>/dev/null || echo "⚠️ No script files to make executable"
+          else
+            echo "⚠️ No scripts directory found in base repository - skipping scripts"
+          fi
           
-          # Copy scripts
-          mkdir -p scripts
-          cp ../base-repo/scripts/*.sh scripts/
-          chmod +x scripts/*.sh
-          
-          # Copy documentation
-          mkdir -p docs
+          # Copy documentation (if it exists)
           if [ -d "../base-repo/docs" ]; then
-            cp ../base-repo/docs/*.md docs/
+            mkdir -p docs
+            cp ../base-repo/docs/*.md docs/ 2>/dev/null || echo "⚠️ No .md files found in docs directory"
+          else
+            echo "⚠️ No docs directory found in base repository - skipping docs"
           fi
           
           # Copy GitHub workflows (including build and destroy workflows)
@@ -1138,6 +1169,16 @@ jobs:
           ---
           Generated by Platform Engineering Pipeline
           EOF
+          
+          # Show what was created in dev branch
+          echo "📋 Dev branch contents:"
+          ls -la
+          echo ""
+          echo "📁 Directories created:"
+          find . -type d -name ".*" -prune -o -type d -print | sort
+          echo ""
+          echo "📄 Key files created:"
+          find . -name "*.tf" -o -name "*.example" -o -name "README.md" -o -name "*.yml" | head -10
           
           # Commit all configuration files to dev branch
           git add .
