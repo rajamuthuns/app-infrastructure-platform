@@ -897,7 +897,9 @@ jobs:
           # Copy configuration files (if they exist)
           if [ -d "../base-repo/config" ]; then
             mkdir -p config
-            cp ../base-repo/config/*.json config/ 2>/dev/null || echo "⚠️ No .json files found in config directory"
+            # Copy all files from config directory
+            cp -r ../base-repo/config/* config/ 2>/dev/null || echo "⚠️ No files found in config directory"
+            echo "✅ Copied all configuration files from base repository"
           else
             mkdir -p config
             echo "⚠️ No config directory found in base repository - creating empty config directory"
@@ -924,7 +926,9 @@ jobs:
           # Copy shared backend configurations (if they exist)
           if [ -d "../base-repo/shared" ]; then
             mkdir -p shared
-            cp ../base-repo/shared/*.hcl shared/ 2>/dev/null || echo "⚠️ No .hcl files found in shared directory"
+            # Copy all files from shared directory
+            cp -r ../base-repo/shared/* shared/ 2>/dev/null || echo "⚠️ No files found in shared directory"
+            echo "✅ Copied all shared configuration files from base repository"
             
             # Update backend configurations with account IDs (if files exist)
             if [ -f "shared/backend-dev.hcl" ]; then
@@ -944,8 +948,11 @@ jobs:
           # Copy scripts (if they exist)
           if [ -d "../base-repo/scripts" ]; then
             mkdir -p scripts
-            cp ../base-repo/scripts/*.sh scripts/ 2>/dev/null || echo "⚠️ No .sh files found in scripts directory"
-            chmod +x scripts/*.sh 2>/dev/null || echo "⚠️ No script files to make executable"
+            # Copy all files from scripts directory
+            cp -r ../base-repo/scripts/* scripts/ 2>/dev/null || echo "⚠️ No files found in scripts directory"
+            # Make shell scripts executable
+            chmod +x scripts/*.sh 2>/dev/null || echo "⚠️ No .sh files to make executable"
+            echo "✅ Copied all script files from base repository"
           else
             echo "⚠️ No scripts directory found in base repository - skipping scripts"
           fi
@@ -953,7 +960,9 @@ jobs:
           # Copy documentation (if it exists)
           if [ -d "../base-repo/docs" ]; then
             mkdir -p docs
-            cp ../base-repo/docs/*.md docs/ 2>/dev/null || echo "⚠️ No .md files found in docs directory"
+            # Copy all files from docs directory
+            cp -r ../base-repo/docs/* docs/ 2>/dev/null || echo "⚠️ No files found in docs directory"
+            echo "✅ Copied all documentation files from base repository"
           else
             echo "⚠️ No docs directory found in base repository - skipping docs"
           fi
@@ -1456,100 +1465,78 @@ jobs:
           
           # Create an issue in the new repository to notify the app team
           ISSUE_BODY=$(cat << 'ISSUE_EOF'
-            Hello App Team! 👋
+Hello App Team! 👋
 
-            Your infrastructure repository has been created and is ready for use.
+Your infrastructure repository has been created and is ready for use.
 
-            ## 🏗️ Repository Details
-            - **Repository**: [${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }})
-            - **App Name**: ${{ needs.validate-inputs.outputs.app_name }}
-            - **Created by**: ${{ github.actor }}
-            - **AWS Accounts**: Dev(${{ needs.validate-inputs.outputs.dev_account_id }}), Staging(${{ needs.validate-inputs.outputs.staging_account_id }}), Prod(${{ needs.validate-inputs.outputs.prod_account_id }})
+## 🏗️ Repository Details
+- **Repository**: [${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }})
+- **App Name**: ${{ needs.validate-inputs.outputs.app_name }}
+- **Created by**: ${{ github.actor }}
+- **AWS Accounts**: Dev(${{ needs.validate-inputs.outputs.dev_account_id }}), Staging(${{ needs.validate-inputs.outputs.staging_account_id }}), Prod(${{ needs.validate-inputs.outputs.prod_account_id }})
 
-            ## 🚀 Quick Start Guide
+## 🚀 Quick Start Guide
 
-            ### 1. Clone and Setup
-            \`\`\`bash
-            # Clone your repository
-            git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git
-            cd ${{ needs.validate-inputs.outputs.repo_name }}
+### 1. Clone and Setup
+```bash
+# Clone your repository
+git clone https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}.git
+cd ${{ needs.validate-inputs.outputs.repo_name }}
 
-            # Switch to dev branch (where all your config files are)
-            git checkout dev
-            \`\`\`
+# Switch to dev branch (where all your config files are)
+git checkout dev
+```
 
-            ### 2. Configure Your Infrastructure
-            \`\`\`bash
-            # Copy example files and customize them
-            cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
-            cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
-            cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
+### 2. Configure Your Infrastructure
+```bash
+# Copy example files and customize them
+cp tfvars/dev-terraform.tfvars.example tfvars/dev-terraform.tfvars
+cp tfvars/stg-terraform.tfvars.example tfvars/stg-terraform.tfvars
+cp tfvars/prod-terraform.tfvars.example tfvars/prod-terraform.tfvars
 
-            # Copy userdata scripts and customize
-            cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
-            \`\`\`
+# Copy userdata scripts and customize
+cp userdata/userdata-linux.sh.example userdata/userdata-linux.sh
+```
 
-            ### 3. Set Up GitHub Secrets
-            Go to your repository Settings → Secrets and variables → Actions, and add:
-            - \`AWS_ACCESS_KEY_ID\` - Your AWS access key
-            - \`AWS_SECRET_ACCESS_KEY\` - Your AWS secret key
-            - \`PRIVATE_REPO_TOKEN\` - GitHub token for private modules (if needed)
+### 3. Set Up GitHub Secrets
+Go to your repository Settings → Secrets and variables → Actions, and add:
+- `AWS_ACCESS_KEY_ID` - Your AWS access key
+- `AWS_SECRET_ACCESS_KEY` - Your AWS secret key
+- `PRIVATE_REPO_TOKEN` - GitHub token for private modules (if needed)
 
-            ### 4. Deploy Your Infrastructure
-            \`\`\`bash
-            # Commit your changes
-            git add .
-            git commit -m \"feat: configure infrastructure for ${{ needs.validate-inputs.outputs.app_name }}\"
+### 4. Deploy Your Infrastructure
+```bash
+# Commit your changes
+git add .
+git commit -m "feat: configure infrastructure for ${{ needs.validate-inputs.outputs.app_name }}"
 
-            # Push to dev branch (triggers automatic deployment)
-            git push origin dev
-            \`\`\`
+# Push to dev branch (triggers automatic deployment)
+git push origin dev
+```
 
-            ## 🌍 GitOps Workflow
-            - **Dev**: Auto-deploys when you push to dev branch
-            - **Staging**: Create PR from dev → staging (requires approval from: ${{ needs.validate-inputs.outputs.staging_approvers }})
-            - **Production**: Create PR from staging → production (requires approval from: ${{ needs.validate-inputs.outputs.prod_approvers }})
+## 🌍 GitOps Workflow
+- **Dev**: Auto-deploys when you push to dev branch
+- **Staging**: Create PR from dev → staging (requires approval from: ${{ needs.validate-inputs.outputs.staging_approvers }})
+- **Production**: Create PR from staging → production (requires approval from: ${{ needs.validate-inputs.outputs.prod_approvers }})
 
-            ## 📖 Documentation
-            - [README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/README.md) - Project overview
-            - [SETUP.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/SETUP.md) - Detailed setup guide
-            - [tfvars/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/tfvars/README.md) - Configuration guide
-            - [userdata/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/userdata/README.md) - Script guide
+## 📖 Documentation
+- [README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/README.md) - Project overview
+- [SETUP.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/main/SETUP.md) - Detailed setup guide
+- [tfvars/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/tfvars/README.md) - Configuration guide
+- [userdata/README.md](https://github.com/${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}/blob/dev/userdata/README.md) - Script guide
 
-            ## 🆘 Need Help?
-            - Check the documentation links above
-            - Contact Platform Engineering team
-            - Comment on this issue for questions
+## 🆘 Need Help?
+- Check the documentation links above
+- Contact Platform Engineering team
+- Comment on this issue for questions
 
-            **Platform Engineering Team**  
-            Repository created via workflow: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+**Platform Engineering Team**  
+Repository created via workflow: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-            ---
-            Please close this issue once you've completed the setup. Happy coding! 🚀
-            ISSUE_EOF
-            )
-                      
-                      gh issue create \
-                        --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
-                        --title "🎉 Your Infrastructure Repository is Ready!" \
-                        --body "$ISSUE_BODY" \
-                        --label "setup,platform-engineering"
-                      
-                      echo "✅ Created notification issue in the new repository"Please c
-            lose this issue once you've completed the setup. Happy coding! 🚀
-            ISSUE_EOF
-            )
-                      
-                      gh issue create \
-                        --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
-                        --title "🎉 Your Infrastructure Repository is Ready!" \
-                        --body "$ISSUE_BODY" \
-                        --label "setup,platform-engineering"
-                      
-                      echo "✅ Created notification issue in the new repository"Please
-            close this issue once you've completed the setup. Happy coding! 🚀
-            ISSUE_EOF
-            )
+---
+Please close this issue once you've completed the setup. Happy coding! 🚀
+ISSUE_EOF
+)
           
           gh issue create \
             --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
