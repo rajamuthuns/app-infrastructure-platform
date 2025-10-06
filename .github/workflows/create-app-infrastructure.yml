@@ -149,7 +149,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PLATFORM_GITHUB_TOKEN }}
         run: |
           gh --version
-          echo "${{ secrets.PLATFORM_GITHUB_TOKEN }}" | gh auth login --with-token
+          gh auth status
           
       - name: Check if repository exists
         id: check-repo
@@ -216,7 +216,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PLATFORM_GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.PLATFORM_GITHUB_TOKEN }}" | gh auth login --with-token
           gh repo clone "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" target-repo
           cd target-repo
           
@@ -871,7 +870,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PLATFORM_GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.PLATFORM_GITHUB_TOKEN }}" | gh auth login --with-token
+          gh auth status
           git config --global credential.helper store
           echo "https://x-access-token:${{ secrets.PLATFORM_GITHUB_TOKEN }}@github.com" > ~/.git-credentials
           git config --global user.name "Platform Engineering Bot"
