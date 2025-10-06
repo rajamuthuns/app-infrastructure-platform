@@ -911,13 +911,29 @@ jobs:
             # Copy all files from config directory
             cp -r ../base-repo/config/* config/ 2>/dev/null || echo "⚠️ No files found in config directory"
             echo "✅ Copied all configuration files from base repository"
-          else
-            mkdir -p config
-            echo "⚠️ No config directory found in base repository - creating empty config directory"
-          fi
-          
-          # Update AWS accounts configuration
-          cat > config/aws-accounts.json << EOF
+            
+            # Update AWS account IDs in existing aws-accounts.json if it exists
+            if [ -f "config/aws-accounts.json" ]; then
+              echo "📝 Updating AWS account IDs in existing aws-accounts.json"
+              # Use jq to update account IDs while preserving existing structure
+              if command -v jq >/dev/null 2>&1; then
+                # Update using jq if available
+                jq --arg dev_id "${{ needs.validate-inputs.outputs.dev_account_id }}" \
+                   --arg staging_id "${{ needs.validate-inputs.outputs.staging_account_id }}" \
+                   --arg prod_id "${{ needs.validate-inputs.outputs.prod_account_id }}" \
+                   '.dev.account_id = $dev_id | .staging.account_id = $staging_id | .production.account_id = $prod_id' \
+                   config/aws-accounts.json > config/aws-accounts.json.tmp && \
+                mv config/aws-accounts.json.tmp config/aws-accounts.json
+                echo "✅ Updated account IDs in existing aws-accounts.json using jq"
+              else
+                # Fallback: use sed to replace account IDs
+                sed -i "s/\"account_id\": \"[0-9]*\"/\"account_id\": \"${{ needs.validate-inputs.outputs.dev_account_id }}\"/g" config/aws-accounts.json
+                echo "✅ Updated account IDs in existing aws-accounts.json using sed (basic replacement)"
+              fi
+            else
+              echo "📝 Creating new aws-accounts.json"
+              # Create new file if it doesn't exist
+              cat > config/aws-accounts.json << EOF
           {
             "dev": {
               "account_id": "${{ needs.validate-inputs.outputs.dev_account_id }}",
@@ -933,6 +949,29 @@ jobs:
             }
           }
           EOF
+              echo "✅ Created new aws-accounts.json"
+            fi
+          else
+            mkdir -p config
+            echo "⚠️ No config directory found in base repository - creating new aws-accounts.json"
+            # Create new file if base repo has no config directory
+            cat > config/aws-accounts.json << EOF
+          {
+            "dev": {
+              "account_id": "${{ needs.validate-inputs.outputs.dev_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            },
+            "staging": {
+              "account_id": "${{ needs.validate-inputs.outputs.staging_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            },
+            "production": {
+              "account_id": "${{ needs.validate-inputs.outputs.prod_account_id }}",
+              "role_name": "OrganizationAccountAccessRole"
+            }
+          }
+          EOF
+          fi
           
           # Copy shared backend configurations (if they exist)
           if [ -d "../base-repo/shared" ]; then
@@ -1557,10 +1596,33 @@ jobs:
           ISSUE_EOF
           )
           
-          gh issue create \
-            --repo "${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}" \
+          # Create labels if they don't exist
+          REPO_FULL_NAME="${{ needs.validate-inputs.outputs.target_org }}/${{ needs.validate-inputs.outputs.repo_name }}"
+          
+          # Try to create setup label
+          gh api --method POST "/repos/$REPO_FULL_NAME/labels" \
+            --field name="setup" \
+            --field color="0075ca" \
+            --field description="Initial repository setup" 2>/dev/null || echo "Label 'setup' may already exist"
+          
+          # Try to create platform-engineering label  
+          gh api --method POST "/repos/$REPO_FULL_NAME/labels" \
+            --field name="platform-engineering" \
+            --field color="7057ff" \
+            --field description="Platform Engineering team" 2>/dev/null || echo "Label 'platform-engineering' may already exist"
+          
+          # Create issue with labels (fallback to no labels if labels don't exist)
+          if gh issue create \
+            --repo "$REPO_FULL_NAME" \
             --title "🎉 Your Infrastructure Repository is Ready!" \
             --body "$ISSUE_BODY" \
-            --label "setup,platform-engineering"
-          
-          echo "✅ Created notification issue in the new repository"
+            --label "setup,platform-engineering" 2>/dev/null; then
+            echo "✅ Created notification issue with labels"
+          else
+            echo "⚠️ Labels not available, creating issue without labels"
+            gh issue create \
+              --repo "$REPO_FULL_NAME" \
+              --title "🎉 Your Infrastructure Repository is Ready!" \
+              --body "$ISSUE_BODY"
+            echo "✅ Created notification issue in the new repository"
+          fi
